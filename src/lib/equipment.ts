@@ -1,0 +1,118 @@
+import { APRON, LANE, PITCH, RTG, rtgAssetScale, rtgSpanScale } from './constants';
+import { newId, type LayoutEquipment } from './layout';
+import { mulberry32 } from './random';
+import type { YardBlock } from './types';
+
+/**
+ * Penempatan alat berat.
+ *
+ * Dipakai DUA kali dan itu yang menentukan bentuknya: sekali oleh renderer
+ * saat belum ada tata letak suntingan, dan sekali lagi oleh editor untuk
+ * mengisi tata letak awal. Karena itu keluarannya daftar `LayoutEquipment`
+ * datar yang bisa disunting, bukan langsung matriks instance.
+ */
+
+/** Lajur tempat truk boleh berdiri, diukur dari tepi blok. */
+const TRUCK_LANES = [
+  { z: (LANE.service.from + LANE.service.to) / 2, ry: 0 },
+  { z: (LANE.road.from + LANE.road.to) / 2 - 3.5, ry: 0 },
+  { z: (LANE.road.from + LANE.road.to) / 2 + 3.5, ry: Math.PI },
+] as const;
+
+export function generateEquipment(
+  blocks: readonly YardBlock[],
+  extentX: number,
+  extentZ: number,
+): LayoutEquipment[] {
+  const rng = mulberry32(7717);
+  const out: LayoutEquipment[] = [];
+
+  for (const b of blocks) {
+    const width = b.rows * PITCH.row;
+    const length = b.slots * PITCH.teu;
+
+    // Satu RTG per blok, di bay acak.
+    const bay = Math.floor(rng() * Math.max(1, b.slots - 4)) + 2;
+    out.push({
+      id: newId('rtg'),
+      kind: 'rtg',
+      x: b.originX + Math.min(bay, b.slots - 1) * PITCH.teu,
+      z: b.originZ + width / 2 + RTG.offsetZ,
+      ry: 0,
+    });
+
+    // Beberapa truk di lajur yang dicat, menghadap arah panahnya.
+    const n = Math.floor(rng() * 4);
+    for (let i = 0; i < n; i++) {
+      const lane = TRUCK_LANES[Math.floor(rng() * TRUCK_LANES.length)];
+      out.push({
+        id: newId('trk'),
+        kind: 'truck',
+        // Rig traktor + chassis ~15,4 m: 11 m di belakang titik penempatan dan
+        // 4,5 m di depannya. Marginnya menjaga rig tidak menjulur keluar blok.
+        x: b.originX + 12 + rng() * Math.max(1, length - 24),
+        z: b.originZ + width + lane.z,
+        ry: lane.ry,
+        loaded: rng() < 0.55,
+      });
+    }
+  }
+
+  // Tiang lampu mengelilingi lapangan yang sebenarnya.
+  const halfX = extentX / 2 + APRON * 0.55;
+  const halfZ = extentZ / 2 + APRON * 0.55;
+  const cols = Math.max(2, Math.round(extentX / 120));
+  for (let i = 0; i <= cols; i++) {
+    const x = -extentX / 2 + (i * extentX) / cols;
+    out.push({ id: newId('lmp'), kind: 'lamp', x, z: -halfZ, ry: 0 });
+    out.push({ id: newId('lmp'), kind: 'lamp', x, z: halfZ, ry: Math.PI });
+  }
+  const rows = Math.max(1, Math.round(extentZ / 140));
+  for (let i = 0; i <= rows; i++) {
+    const z = -extentZ / 2 + (i * extentZ) / rows;
+    out.push({ id: newId('lmp'), kind: 'lamp', x: -halfX, z, ry: Math.PI / 2 });
+    out.push({ id: newId('lmp'), kind: 'lamp', x: halfX, z, ry: -Math.PI / 2 });
+  }
+
+  return out;
+}
+
+/**
+ * Faktor skala Z portal RTG, diambil dari blok terdekat pada sumbu Z.
+ *
+ * RTG harus menaungi bloknya, dan lebar blok berbeda-beda. Diturunkan dari
+ * posisi alih-alih disimpan di datanya sendiri supaya RTG yang digeser user
+ * ke blok lain langsung menyesuaikan bentang, tanpa perlu ada yang menyuntingnya.
+ */
+export function rtgScaleAt(blocks: readonly YardBlock[], z: number): number {
+  const width = nearestBlockWidth(blocks, z);
+  return width === null ? 1 : rtgSpanScale(width);
+}
+
+/**
+ * Skala SERAGAM aset RTG, dari blok terdekat yang sama.
+ *
+ * Terpisah dari rtgScaleAt karena titik acuannya berbeda: portal prosedural
+ * relnya di 12,5 m dari sumbu, aset ini di 7,6 m. Memakai angka yang sama untuk
+ * keduanya membuat salah satunya pasti meleset — dan yang meleset selama ini
+ * adalah asetnya, yang berdiri di dalam blok alih-alih menaunginya.
+ */
+export function rtgAssetScaleAt(blocks: readonly YardBlock[], z: number): number {
+  const width = nearestBlockWidth(blocks, z);
+  return width === null ? 1 : rtgAssetScale(width);
+}
+
+/** Lebar blok terdekat pada sumbu Z, atau null kalau lapangannya kosong. */
+function nearestBlockWidth(blocks: readonly YardBlock[], z: number): number | null {
+  let best: YardBlock | null = null;
+  let bestDist = Infinity;
+  for (const b of blocks) {
+    const centre = b.originZ + (b.rows * PITCH.row) / 2;
+    const d = Math.abs(centre - z);
+    if (d < bestDist) {
+      bestDist = d;
+      best = b;
+    }
+  }
+  return best ? best.rows * PITCH.row : null;
+}
