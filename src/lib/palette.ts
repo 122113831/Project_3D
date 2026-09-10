@@ -1,4 +1,10 @@
-import type { ColorMode, ContainerStatus, ContainerType, YardContainer } from './types';
+import type {
+  ColorMode,
+  ContainerStatus,
+  ContainerType,
+  TypeFilter,
+  YardContainer,
+} from './types';
 
 /** Warna badan kontainer per shipping line — mendekati livery aslinya. */
 export const LINE_COLOR: Record<string, string> = {
@@ -26,6 +32,41 @@ export const TYPE_LABEL: Record<ContainerType, string> = {
   gp: 'GP (box)',
   tank: 'Tank',
 };
+
+/**
+ * Label chip filter "Jenis".
+ *
+ * Reefer ada di sini, bukan di Status. Ia memang bukan keadaan muatan seperti
+ * isi/kosong — ia jenis kontainer, dan renderer pun memperlakukannya begitu:
+ * reefer memakai model 3D-nya sendiri, lengkap dengan unit pendingin.
+ */
+export const TYPE_FILTER_LABEL: Record<TypeFilter, string> = {
+  gp: 'GP (box)',
+  tank: 'Tank',
+  reefer: 'Reefer',
+};
+
+
+/**
+ * Nama panjang kode CTR_TYPE yang benar-benar muncul di database depot.
+ *
+ * Kode yang tidak dikenali ditampilkan apa adanya, bukan dipaksa jadi "GP":
+ * daftar ini melengkapi, bukan menyaring.
+ */
+export const CTR_TYPE_LABEL: Record<string, string> = {
+  GP: 'GP (general purpose)',
+  HC: 'HC (high cube)',
+  OT: 'OT (open top)',
+  FR: 'FR (flat rack)',
+  PL: 'PL (platform)',
+  RF: 'RF (reefer)',
+  RE: 'RE (reefer)',
+  RH: 'RH (reefer high cube)',
+  RT: 'RT (reefer)',
+  TK: 'TK (tank)',
+};
+
+export const ctrTypeLabel = (code: string) => CTR_TYPE_LABEL[code] ?? (code || '—');
 
 export const STATUS_LABEL: Record<ContainerStatus, string> = {
   full: 'Isi (full)',
@@ -72,6 +113,13 @@ export const ASSET_COLOR = {
   reefer: '#e8e3d7',
   tank: '#ffffff',
 } as const;
+
+/** Warna chip Jenis: sama dengan warna aset saat pewarnaan dimatikan. */
+export const TYPE_FILTER_COLOR: Record<TypeFilter, string> = {
+  gp: ASSET_COLOR.gp,
+  tank: ASSET_COLOR.tank,
+  reefer: ASSET_COLOR.reefer,
+};
 
 /** Warna kontainer terpilih / hasil pencarian. */
 export const HIGHLIGHT_COLOR = '#ffe066';

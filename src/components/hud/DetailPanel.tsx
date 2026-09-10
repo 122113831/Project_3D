@@ -1,15 +1,40 @@
 'use client';
 
 import { LINES } from '@/lib/constants';
-import { LINE_COLOR, STATUS_COLOR, STATUS_LABEL, TYPE_LABEL } from '@/lib/palette';
+import { ctrTypeLabel, LINE_COLOR, STATUS_COLOR, STATUS_LABEL } from '@/lib/palette';
 import { useYard } from '@/store/useYard';
 import { nf, Panel } from './ui';
 
-function Row({ label, value }: { label: string; value: string }) {
+/**
+ * Tanggal ISO (yyyy-mm-dd) menjadi dd-mm-yyyy untuk dibaca orang.
+ *
+ * Disimpan tetap ISO di datanya — bentuk itu yang bisa diurutkan sebagai teks
+ * biasa dan tidak bermakna ganda — dan hanya dibalik saat digambar. Nilai yang
+ * bentuknya tidak dikenali dilewatkan apa adanya, bukan dijadikan "NaN-NaN".
+ */
+const tanggal = (iso: string) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : iso;
+};
+
+function Row({
+  label,
+  value,
+  /** Menyorot nilai yang perlu diperhatikan operator, mis. kontainer rusak. */
+  warn = false,
+}: {
+  label: string;
+  value: string;
+  warn?: boolean;
+}) {
   return (
     <div className="flex items-baseline justify-between gap-4 py-[3px]">
       <span className="text-[11px] text-slate-400">{label}</span>
-      <span className="text-[12px] font-medium tabular-nums text-slate-100">{value}</span>
+      <span
+        className={`text-[12px] font-medium tabular-nums ${warn ? 'text-amber-300' : 'text-slate-100'}`}
+      >
+        {value}
+      </span>
     </div>
   );
 }
@@ -59,11 +84,27 @@ export function DetailPanel() {
       </div>
 
       <div className="px-3 py-2">
-        <Row label="Posisi" value={`${selected.block}-${String(selected.bay + 1).padStart(2, '0')}-${selected.row + 1}-${selected.tier}`} />
-        <Row label="Blok / bay / row / tier" value={`${selected.block} · ${selected.bay + 1} · ${selected.row + 1} · ${selected.tier}`} />
+        <Row label="Blok/bay/row/tier" value={`${selected.block} · ${selected.bay + 1} · ${selected.row + 1} · ${selected.tier}`} />
         <Row label="Ukuran" value={`${selected.size} ft`} />
-        <Row label="Jenis" value={TYPE_LABEL[selected.type]} />
-        <Row label="Status" value={STATUS_LABEL[selected.status]} />
+        {/* Kode dari tabel, bukan bentuk yang digambar. `selected.type` hanya
+            mengenal kotak dan tangki — HC, OT, dan RF semuanya kotak — jadi
+            memakainya di sini membuat RF terbaca "GP (box)". */}
+        <Row label="Jenis" value={ctrTypeLabel(selected.typeCode)} />
+        <Row label="Kode ISO" value={selected.isoCode || '—'} />
+        {/* Apa yang TERCATAT di CONTAINER.CTR_STATUS, bukan kategori turunan.
+            Kategori itu — Reefer, Rusak, Dangerous — menang atas isi/kosong saat
+            mewarnai lapangan, jadi memakainya di sini akan menyembunyikan fakta
+            bahwa sebuah reefer sedang kosong. Kategorinya tetap terbaca dari
+            pita warna di kaki panel ini. */}
+        <Row label="Status" value={selected.filled ? STATUS_LABEL.full : STATUS_LABEL.empty} />
+        {/* Kerusakan dapat barisnya sendiri, bukan menumpang di Status. Sebuah
+            kontainer bisa sekaligus rusak DAN berbahaya, dan kategori turunan
+            hanya menyimpan satu di antaranya. */}
+        <Row
+          label="Kondisi"
+          value={selected.damaged ? STATUS_LABEL.damaged : 'Baik'}
+          warn={selected.damaged}
+        />
         <Row label="Operator" value={line?.name ?? selected.line} />
         <Row label="Vessel" value={selected.vessel} />
         {/* GROSS kosong di database depot dan TARE sering ikut kosong, jadi
@@ -72,7 +113,7 @@ export function DetailPanel() {
           label="Berat"
           value={selected.weightKg > 0 ? `${nf(selected.weightKg)} kg` : '—'}
         />
-        <Row label="Masuk lapangan" value={selected.inDate} />
+        <Row label="Masuk lapangan" value={tanggal(selected.inDate)} />
       </div>
 
       <div

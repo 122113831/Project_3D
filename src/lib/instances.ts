@@ -1,7 +1,14 @@
 import * as THREE from 'three';
 import { colorFor, GHOST_COLOR, HIGHLIGHT_COLOR } from './palette';
 import { containerPosition } from './yard';
-import type { ColorMode, YardBlock, YardContainer, YardFilter } from './types';
+import type {
+  ColorMode,
+  ContainerStatus,
+  TypeFilter,
+  YardBlock,
+  YardContainer,
+  YardFilter,
+} from './types';
 
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
@@ -36,11 +43,42 @@ export function writeMatrices(
   mesh.computeBoundingSphere();
 }
 
+/**
+ * Apakah kontainer ini memenuhi satu pilihan status.
+ *
+ * Diperiksa terhadap FAKTA MENTAH, bukan kategori turunan `c.status`. Kategori
+ * itu hanya menyimpan satu sifat dan yang lebih genting menang — reefer yang
+ * kosong berkategori 'reefer' — jadi menyaring dengannya membuat "Kosong"
+ * diam-diam melewatkan setiap reefer, setiap kontainer rusak, dan setiap
+ * barang berbahaya yang kebetulan juga kosong.
+ *
+ * 'reefer' masih dilayani di sini walau chip-nya sudah pindah ke Jenis: filter
+ * yang tersimpan dari versi sebelumnya bisa saja masih memuatnya.
+ */
+const statusMatch = (c: YardContainer, s: ContainerStatus): boolean => {
+  switch (s) {
+    case 'full':
+      return c.filled;
+    case 'empty':
+      return !c.filled;
+    case 'damaged':
+      return c.damaged;
+    case 'dangerous':
+      return c.dangerous;
+    case 'reefer':
+      return c.reefer;
+  }
+};
+
+/** Reefer disaring dari sifatnya sendiri; sisanya dari bentuk yang digambar. */
+const typeMatch = (c: YardContainer, t: TypeFilter): boolean =>
+  t === 'reefer' ? c.reefer : c.type === t;
+
 export function matchesFilter(c: YardContainer, f: YardFilter): boolean {
   if (f.lines.length && !f.lines.includes(c.line)) return false;
-  if (f.statuses.length && !f.statuses.includes(c.status)) return false;
+  if (f.statuses.length && !f.statuses.some((s) => statusMatch(c, s))) return false;
   if (f.sizes.length && !f.sizes.includes(c.size)) return false;
-  if (f.types.length && !f.types.includes(c.type)) return false;
+  if (f.types.length && !f.types.some((t) => typeMatch(c, t))) return false;
   return true;
 }
 

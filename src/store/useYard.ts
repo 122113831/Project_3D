@@ -5,7 +5,7 @@ import type {
   ColorMode,
   ContainerSize,
   ContainerStatus,
-  ContainerType,
+  TypeFilter,
   YardSource,
   YardBlock,
   YardContainer,
@@ -71,7 +71,7 @@ type YardState = {
   toggleLine: (code: string) => void;
   toggleStatus: (s: ContainerStatus) => void;
   toggleSize: (s: ContainerSize) => void;
-  toggleType: (t: ContainerType) => void;
+  toggleType: (t: TypeFilter) => void;
   resetFilter: () => void;
   select: (c: YardContainer | null, fly?: boolean) => void;
   setOption: <K extends keyof ViewOptions>(key: K, value: ViewOptions[K]) => void;

@@ -282,6 +282,16 @@ export function generateYard(opts: GenerateOptions = {}): YardData {
               inDate: new Date(baseDate - randInt(rng, 0, 21) * 86_400_000)
                 .toISOString()
                 .slice(0, 10),
+              // Lapangan bangkitan tidak punya CTR_STATUS; yang berkategori
+              // 'empty' dianggap kosong, sisanya berisi.
+              filled: status !== 'empty',
+              damaged: status === 'damaged',
+              // Lapangan bangkitan hanya mengenal dua bentuk, jadi kode
+              // aslinya diturunkan dari bentuk itu — bukan dikarang lebih jauh.
+              reefer: status === 'reefer',
+              dangerous: status === 'dangerous',
+              typeCode: tank ? 'TK' : 'GP',
+              isoCode: `${plan.size === 40 ? '42' : '22'}${tank ? 'T' : 'G'}1`,
             });
             totalTeu += plan.size === 40 ? 2 : 1;
           }

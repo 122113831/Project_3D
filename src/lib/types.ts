@@ -10,6 +10,16 @@ export type ContainerSize = 20 | 40;
  */
 export type ContainerType = 'gp' | 'tank';
 
+/**
+ * Pilihan pada filter "Jenis".
+ *
+ * Lebih luas daripada ContainerType, dan memang harus. ContainerType adalah
+ * BENTUK yang digambar — kotak atau tangki — sedangkan reefer adalah kotak yang
+ * kebetulan berpendingin. Reefer tetap perlu bisa disaring sebagai jenis,
+ * karena begitulah orang lapangan menyebutnya.
+ */
+export type TypeFilter = ContainerType | 'reefer';
+
 export type ContainerStatus =
   | 'full'
   | 'empty'
@@ -37,6 +47,41 @@ export type YardContainer = {
   vessel: string;
   /** Tanggal masuk lapangan (ISO date) */
   inDate: string;
+  /**
+   * Isi atau kosong menurut CONTAINER.CTR_STATUS ('F' / 'E'), apa adanya.
+   *
+   * Terpisah dari `status` karena keduanya menjawab pertanyaan yang berbeda.
+   * `status` adalah kategori turunan untuk mewarnai dan menyaring lapangan, dan
+   * urutannya menang-mengalahkan: kontainer reefer yang kosong berkategori
+   * 'reefer', sehingga fakta bahwa ia kosong hilang. Panel detail menampilkan
+   * apa yang tercatat di tabel, bukan hasil penurunannya.
+   */
+  filled: boolean;
+  /**
+   * Rusak menurut CONTAINER.IS_DAMAGE ('Y' / 'N'), apa adanya.
+   *
+   * Sama alasannya dengan `filled`: kategori turunan `status` hanya menyimpan
+   * SATU sifat, dan yang lebih genting menang. Kontainer rusak yang juga
+   * berbahaya berkategori 'dangerous', jadi kerusakannya tidak terbaca di mana
+   * pun tanpa field ini. Di database dev: 109 rusak dari 940.
+   */
+  damaged: boolean;
+  /** Berpendingin, dari CTR_TYPE (RE/RF/RH/RT) atau digit ketiga ISO_CODE. */
+  reefer: boolean;
+  /** Barang berbahaya, dari DG atau IMO_CD yang terisi. */
+  dangerous: boolean;
+  /**
+   * CONTAINER.CTR_TYPE apa adanya — GP, HC, OT, RF, TK, …
+   *
+   * Berbeda dari `type`, yang cuma 'gp' | 'tank'. Yang terakhir itu BENTUK
+   * untuk menggambar: lapangan ini punya dua model, kotak dan tangki, jadi
+   * apa pun yang bukan tangki digambar sebagai kotak. Tanpa kode aslinya, HC,
+   * OT, dan RF semuanya tampil "GP (box)" di panel — dan itu keliru sebagai
+   * informasi, walau benar sebagai bentuk.
+   */
+  typeCode: string;
+  /** CONTAINER.ISO_CODE apa adanya (22G1, 42R1, 22U1, …). */
+  isoCode: string;
 };
 
 /**
@@ -136,5 +181,5 @@ export type YardFilter = {
   lines: string[];
   statuses: ContainerStatus[];
   sizes: ContainerSize[];
-  types: ContainerType[];
+  types: TypeFilter[];
 };

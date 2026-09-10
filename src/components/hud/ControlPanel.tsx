@@ -6,22 +6,25 @@ import {
   COLOR_MODE_LABEL,
   STATUS_COLOR,
   STATUS_LABEL,
-  TYPE_LABEL,
+  TYPE_FILTER_COLOR,
+  TYPE_FILTER_LABEL,
 } from '@/lib/palette';
 import type {
   ColorMode,
   ContainerSize,
   ContainerStatus,
-  ContainerType,
+  TypeFilter,
 } from '@/lib/types';
 import { useYard } from '@/store/useYard';
 import { useYardView } from '@/store/useYardView';
 import { Chip, Panel, Section, SubLabel, Toggle } from './ui';
 
 const COLOR_MODES: ColorMode[] = ['line', 'status', 'size', 'tier'];
-const STATUSES: ContainerStatus[] = ['full', 'empty', 'reefer', 'dangerous', 'damaged'];
+// Reefer TIDAK di sini. Ia jenis kontainer, bukan keadaan muatannya — dan
+// renderer pun memperlakukannya begitu, dengan model 3D-nya sendiri.
+const STATUSES: ContainerStatus[] = ['full', 'empty', 'dangerous', 'damaged'];
 const SIZES: ContainerSize[] = [20, 40];
-const TYPES: ContainerType[] = ['gp', 'tank'];
+const TYPES: TypeFilter[] = ['gp', 'tank', 'reefer'];
 const DENSITIES = [
   { label: 'Ringan', value: 0.3 },
   { label: 'Normal', value: 0.68 },
@@ -124,8 +127,13 @@ export function ControlPanel() {
         <SubLabel>Jenis</SubLabel>
         <div className="grid grid-cols-2 gap-1">
           {TYPES.map((t) => (
-            <Chip key={t} active={filter.types.includes(t)} onClick={() => toggleType(t)}>
-              {TYPE_LABEL[t]}
+            <Chip
+              key={t}
+              color={TYPE_FILTER_COLOR[t]}
+              active={filter.types.includes(t)}
+              onClick={() => toggleType(t)}
+            >
+              {TYPE_FILTER_LABEL[t]}
             </Chip>
           ))}
         </div>

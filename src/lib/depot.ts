@@ -146,12 +146,30 @@ const isReefer = (row: DepotRow) =>
  * Urutan pemeriksaan menentukan hasilnya: satu kontainer bisa sekaligus rusak
  * DAN reefer, dan yang lebih penting untuk operasional yang menang.
  */
+const isDangerous = (row: DepotRow) =>
+  row.DG === 'Y' || (row.IMO_CD !== null && row.IMO_CD.trim() !== '');
+
 function statusOf(row: DepotRow): ContainerStatus {
-  if (row.DG === 'Y' || (row.IMO_CD !== null && row.IMO_CD.trim() !== '')) return 'dangerous';
+  if (isDangerous(row)) return 'dangerous';
   if (row.IS_DAMAGE === 'Y') return 'damaged';
   if (isReefer(row)) return 'reefer';
   return row.CTR_STATUS?.trim().toUpperCase() === 'F' ? 'full' : 'empty';
 }
+
+/**
+ * Tanggal saja dari sebuah Date, dibaca pada zona waktu SERVER.
+ *
+ * Bukan toISOString().slice(0, 10). Cara itu mengonversi ke UTC lebih dulu, dan
+ * di WIB (UTC+7) setiap jam masuk sebelum pukul 07:00 mundur satu hari.
+ * Terukur di database ini: 9 kontainer masuk sebelum jam 7 pagi, dan yang
+ * tercatat 23-04-2026 00:31 tampil sebagai 22-04-2026.
+ *
+ * RECEIV_DATE datang dari Oracle sebagai DATE tanpa zona waktu — angka yang
+ * ditulis operator apa adanya — jadi yang benar adalah membacanya apa adanya
+ * juga.
+ */
+const isoDate = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 const weightOf = (row: DepotRow): number => {
   if (row.GROSS !== null) return Math.round(Number(row.GROSS));
@@ -528,7 +546,13 @@ export async function fetchDepotYard(): Promise<YardData> {
       tier: Math.max(1, Number(r.YARD_TIER)),
       weightKg: weightOf(r),
       vessel: r.VESSEL_NAME?.trim() || '—',
-      inDate: (r.RECEIV_DATE ?? new Date()).toISOString().slice(0, 10),
+      inDate: isoDate(r.RECEIV_DATE ?? new Date()),
+      filled: r.CTR_STATUS?.trim().toUpperCase() === 'F',
+      damaged: r.IS_DAMAGE?.trim().toUpperCase() === 'Y',
+      typeCode: r.CTR_TYPE?.trim().toUpperCase() || '',
+      isoCode: r.ISO_CODE?.trim().toUpperCase() || '',
+      reefer: isReefer(r),
+      dangerous: isDangerous(r),
     };
     slotRows.set(container, Number(r.SLOT_ROWS) || 1);
     block.containers.push(container);
