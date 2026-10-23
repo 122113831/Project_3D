@@ -139,9 +139,14 @@ function build(blocks: readonly YardBlock[], roads: readonly LayoutRoad[]) {
     roadGeo[k] = tiles[k].length ? mergeGeometries(tiles[k], false)! : null;
   }
 
+  // Daftar KOSONG tidak boleh sampai ke mergeGeometries: ia membaca
+  // geometries[0] tanpa memeriksa, dan lemparannya menjatuhkan seluruh kanvas.
+  // Kosong itu kejadian biasa, bukan kasus aneh — tata letak dari localStorage
+  // sudah ada sejak store dibuat, sementara data lapangan baru tiba setelah
+  // kueri database selesai; di sela itu ada jalan tapi belum ada blok.
   return {
-    slab: mergeGeometries(slabs, false)!,
-    lane: mergeGeometries(lanes, false)!,
+    slab: slabs.length ? mergeGeometries(slabs, false)! : null,
+    lane: lanes.length ? mergeGeometries(lanes, false)! : null,
     roads: roadGeo,
   };
 }
@@ -176,8 +181,8 @@ export function Ground() {
     if (!built) return;
     invalidate();
     return () => {
-      built.slab.dispose();
-      built.lane.dispose();
+      built.slab?.dispose();
+      built.lane?.dispose();
       for (const k of ROAD_KINDS) built.roads[k]?.dispose();
     };
   }, [built, invalidate]);
@@ -215,12 +220,16 @@ export function Ground() {
 
       {built && (
         <>
-          <mesh geometry={built.slab} receiveShadow={shadows}>
-            <meshLambertMaterial map={textures.marking} />
-          </mesh>
-          <mesh geometry={built.lane} receiveShadow={shadows}>
-            <meshLambertMaterial map={textures.lane} />
-          </mesh>
+          {built.slab && (
+            <mesh geometry={built.slab} receiveShadow={shadows}>
+              <meshLambertMaterial map={textures.marking} />
+            </mesh>
+          )}
+          {built.lane && (
+            <mesh geometry={built.lane} receiveShadow={shadows}>
+              <meshLambertMaterial map={textures.lane} />
+            </mesh>
+          )}
           {ROAD_KINDS.map((k) =>
             built.roads[k] ? (
               <mesh key={k} geometry={built.roads[k]!} receiveShadow={shadows}>

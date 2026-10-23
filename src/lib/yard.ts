@@ -10,6 +10,7 @@ import {
   YARD_EXTENT_Z,
 } from './constants';
 import { containerNumber } from './iso6346';
+import { blockedCount } from './slots';
 import { mulberry32, pick, randInt, weighted, type Rng } from './random';
 import type {
   BlockSide,
@@ -124,6 +125,29 @@ export function blockCenter(
  * Titik di sekitar blok, ikut berputar bersamanya. `dx`/`dz` diukur dari PUSAT
  * blok. Dipakai lorong RTG, label, dan apa pun yang menempel pada blok.
  */
+/**
+ * Isi dan sisa kapasitas satu blok, dalam posisi 20ft (TEU).
+ *
+ * Kapasitas = slot × row × tier — cara yang sama dengan meta.capacityTeu,
+ * jadi persen per blok dan persen lapangan di TopBar tidak bisa berselisih.
+ * Kontainer 40ft memakan dua posisi. "Sisa" dihitung dalam box 20ft: sebuah
+ * 40ft butuh dua di antaranya.
+ */
+export function blockOccupancy(b: Pick<YardBlock, 'slots' | 'rows' | 'tiers' | 'containers' | 'blocked'>) {
+  // Slot terkunci dikeluarkan dari kapasitas — sama seperti meta.capacityTeu.
+  const blocked = blockedCount(b.blocked, b);
+  const capacity = b.slots * b.rows * b.tiers - blocked;
+  const used = b.containers.reduce((n, c) => n + (c.size === 40 ? 2 : 1), 0);
+  return {
+    capacity,
+    blocked,
+    used,
+    boxes: b.containers.length,
+    free: Math.max(0, capacity - used),
+    pct: capacity > 0 ? Math.min(100, (used / capacity) * 100) : 0,
+  };
+}
+
 export function aroundBlock(
   b: Pick<YardBlock, 'originX' | 'originZ' | 'slots' | 'rows'> & { rot?: number },
   dx: number,

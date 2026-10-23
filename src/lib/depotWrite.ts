@@ -123,12 +123,12 @@ const BLOCK_INSERT = `
   INSERT INTO core_yard_block (
     id, site_id, yard_block, yard_block_name, yard_slot, yard_row, yard_tier,
     x, y, rot_deg, phys_virtual, horz_vert, truck_lane, slot_start,
-    teus_ava, teus_used, cy_loc, crt_ts, crt_by, upd_ts, upd_by
+    teus_ava, teus_used, crt_ts, crt_by, upd_ts, upd_by
   ) VALUES (
     TO_CHAR(SYSDATE,'YYMMDDMISS') || LPAD(seq_id.NEXTVAL, 10, '0'),
     :site, :code, :name, :slots, :rows_, :tiers,
     :mapX, :mapY, :rotDeg, 'P', 'H', :truckLane, :slotStart,
-    :cap, 0, :cy, SYSDATE, :who, SYSDATE, :who
+    :cap, 0, SYSDATE, :who, SYSDATE, :who
   )`;
 
 /**
@@ -138,24 +138,95 @@ const BLOCK_INSERT = `
  * Dirakit di SQL, bukan di JavaScript: angkanya 20 digit, jauh di atas batas
  * presisi Number, dan merakitnya di sini akan diam-diam membulatkannya.
  */
+// Tanpa CY_LOC: kolom itu tidak ada di CORE_YARD_BLOCK maupun YARD_ROWTIER
+// database ini (diperiksa lewat USER_TAB_COLUMNS), dan menyebutnya membuat
+// seluruh penyisipan gagal. PCH dibiarkan NULL seperti hampir semua baris yang
+// sudah ada (970 dari 1.008 di blok D).
 const SLOT_INSERT = `
   INSERT INTO yard_rowtier (
     id, site_id, yard_block, yard_slot, yard_row, yard_tier,
-    status, container_key, container_number, update_time, pch, cy_loc
+    status, container_key, container_number, update_time, pch
   ) VALUES (
     TO_NUMBER(TO_CHAR(SYSDATE,'YYMMDDMISS') || LPAD(seq_id.NEXTVAL, 10, '0')),
-    :site, :code, :slot, :row_, :tier, 'DRY', NULL, NULL, SYSDATE, 'C', :cy
+    :site, :code, :slot, :row_, :tier, :st, NULL, NULL, SYSDATE, :pch
   )`;
 
-/** SITE_ID dan CY_LOC diambil dari blok yang sudah ada, bukan ditanam di kode. */
+const SLOT_BIND_DEFS = {
+  site: { type: oracledb.STRING, maxSize: 20 },
+  code: { type: oracledb.STRING, maxSize: 5 },
+  slot: { type: oracledb.STRING, maxSize: 3 },
+  row_: { type: oracledb.STRING, maxSize: 2 },
+  tier: { type: oracledb.STRING, maxSize: 2 },
+  st: { type: oracledb.STRING, maxSize: 3 },
+  pch: { type: oracledb.STRING, maxSize: 1 },
+};
+
+/** SITE_ID diambil dari blok yang sudah ada, bukan ditanam di kode. */
 async function siteOf(c: oracledb.Connection) {
-  const r = await c.execute<{ SITE_ID: string | null; CY_LOC: string | null }>(
-    `SELECT site_id, cy_loc FROM core_yard_block WHERE ROWNUM = 1`,
+  const r = await c.execute<{ SITE_ID: string | null }>(
+    `SELECT site_id FROM core_yard_block WHERE ROWNUM = 1`,
     {},
     { outFormat: oracledb.OUT_FORMAT_OBJECT },
   );
-  const row = r.rows?.[0];
-  return { site: row?.SITE_ID ?? null, cy: row?.CY_LOC?.trim() ?? null };
+  return { site: r.rows?.[0]?.SITE_ID ?? null };
+}
+
+type RowTemplate = { SITE_ID: string | null; STATUS: string | null; PCH: string | null };
+
+/**
+ * Nilai kolom pendamping untuk baris slot baru, disalin dari baris yang sudah
+ * ada — di blok yang sama kalau ada, kalau tidak dari blok mana pun. Baris yang
+ * dikarang nilainya akan tampak sah tapi berbeda dari tetangganya.
+ */
+async function templateOf(c: oracledb.Connection, code: string): Promise<RowTemplate | null> {
+  const pick = async (sql: string, binds: oracledb.BindParameters) =>
+    (await c.execute<RowTemplate>(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT })).rows?.[0] ?? null;
+  return (
+    (await pick(
+      `SELECT site_id, status, pch FROM yard_rowtier WHERE TRIM(yard_block) = :code AND ROWNUM = 1`,
+      { code },
+    )) ?? (await pick(`SELECT site_id, status, pch FROM yard_rowtier WHERE ROWNUM = 1`, {}))
+  );
+}
+
+/** Sel yang sudah punya baris di satu blok, sebagai kunci "slot:row:tier". */
+async function existingCells(c: oracledb.Connection, code: string) {
+  const r = await c.execute<{ S: number; R: number; T: number }>(
+    `SELECT TO_NUMBER(TRIM(yard_slot)) AS s, TO_NUMBER(TRIM(yard_row)) AS r,
+            TO_NUMBER(TRIM(yard_tier)) AS t
+       FROM yard_rowtier WHERE TRIM(yard_block) = :code`,
+    { code },
+    { outFormat: oracledb.OUT_FORMAT_OBJECT },
+  );
+  return new Set(r.rows?.map((x) => `${x.S}:${x.R}:${x.T}`) ?? []);
+}
+
+/** Menyisipkan baris slot; `cells` berisi {slot, row, tier} dalam bentuk tabel. */
+async function insertCells(
+  c: oracledb.Connection,
+  code: string,
+  site: string | null,
+  tpl: RowTemplate | null,
+  cells: { slot: number; row: number; tier: number }[],
+) {
+  if (cells.length === 0) return 0;
+  if (cells.length > MAX_CELLS) {
+    throw new WriteRefused(`${cells.length} baris terlalu banyak untuk sekali tulis (batas ${MAX_CELLS}).`);
+  }
+  const rows: oracledb.BindParameters[] = cells.map((x) => ({
+    site: tpl?.SITE_ID ?? site,
+    code,
+    slot: String(x.slot),
+    row_: String(x.row),
+    tier: String(x.tier),
+    st: tpl ? (tpl.STATUS?.trim() ?? null) : 'DRY',
+    pch: tpl ? (tpl.PCH?.trim() ?? null) : null,
+  }));
+  const res = await c.executeMany(SLOT_INSERT, rows, { bindDefs: SLOT_BIND_DEFS });
+  if ((res.rowsAffected ?? 0) !== rows.length) {
+    throw new Error(`Hanya ${res.rowsAffected} dari ${rows.length} baris slot tersisip.`);
+  }
+  return rows.length;
 }
 
 export type CreateResult = { code: string; slotRows: number; ms: number };
@@ -189,7 +260,7 @@ export async function createBlock(input: NewBlock): Promise<CreateResult> {
       throw new WriteRefused(`Blok "${b.code}" sudah ada di CORE_YARD_BLOCK.`);
     }
 
-    const { site, cy } = await siteOf(c);
+    const { site } = await siteOf(c);
     const cap = b.slots * b.rows * b.tiers;
 
     await c.execute(BLOCK_INSERT, {
@@ -205,48 +276,25 @@ export async function createBlock(input: NewBlock): Promise<CreateResult> {
       truckLane: b.truckLane,
       slotStart: b.slotStart,
       cap,
-      cy,
       who: author(),
     });
 
     // Nomor slot ganjil: 1, 3, 5, … 2n-1. Itu konvensi YARD_SLOT di database
     // ini — nol baris bernomor genap di ketiga blok yang sudah ada.
-    const rows: oracledb.BindParameters[] = [];
+    const cells: { slot: number; row: number; tier: number }[] = [];
     for (let s = 0; s < b.slots; s++) {
       for (let r = 1; r <= b.rows; r++) {
-        for (let t = 1; t <= b.tiers; t++) {
-          rows.push({
-            site,
-            code: b.code,
-            slot: String(s * 2 + 1),
-            row_: String(r),
-            tier: String(t),
-            cy,
-          });
-        }
+        for (let t = 1; t <= b.tiers; t++) cells.push({ slot: s * 2 + 1, row: r, tier: t });
       }
     }
-
-    const res = await c.executeMany(SLOT_INSERT, rows, {
-      bindDefs: {
-        site: { type: oracledb.STRING, maxSize: 20 },
-        code: { type: oracledb.STRING, maxSize: 5 },
-        slot: { type: oracledb.STRING, maxSize: 3 },
-        row_: { type: oracledb.STRING, maxSize: 2 },
-        tier: { type: oracledb.STRING, maxSize: 2 },
-        cy: { type: oracledb.STRING, maxSize: 3 },
-      },
-    });
-    if ((res.rowsAffected ?? 0) !== rows.length) {
-      throw new Error(`Hanya ${res.rowsAffected} dari ${rows.length} baris slot tersisip.`);
-    }
+    const inserted = await insertCells(c, b.code, site, await templateOf(c, b.code), cells);
 
     await c.commit();
     const ms = Date.now() - started;
     if (depotLogging()) {
-      console.log(`[depot] blok ${b.code} dibuat: ${rows.length} baris slot, ${ms} ms`);
+      console.log(`[depot] blok ${b.code} dibuat: ${inserted} baris slot, ${ms} ms`);
     }
-    return { code: b.code, slotRows: rows.length, ms };
+    return { code: b.code, slotRows: inserted, ms };
   } catch (e) {
     await c.rollback().catch(() => {});
     throw e;
@@ -486,4 +534,281 @@ export async function writeLayout(
   } finally {
     await c.close();
   }
+}
+
+// --- kunci slot: baris YARD_ROWTIER dihapus / disisipkan kembali -------------
+//
+// YARD_ROWTIER adalah inventaris slot: tiap sel slot x row x tier punya satu
+// baris, kosong atau berisi. Menu stack/unstack TOS memilih tempat dari baris
+// itu, jadi sel yang barisnya TIDAK ADA tidak bisa ditumpuki — itulah kuncinya.
+// Tidak ada tabel atau kolom baru; aplikasi 3D membaca kunci dari baris yang
+// hilang (lihat lockedFromRowtier di depot.ts), jadi tampilan dan TOS tidak
+// mungkin berselisih.
+//
+// Sebelum dipakai sudah diperiksa: tidak ada foreign key yang menunjuk ke
+// YARD_ROWTIER, tidak ada trigger, dan tidak ada procedure di skema ini yang
+// menyebut tabelnya.
+
+export type SlotRef = { block: string; slot: number; row: number; tier?: number };
+
+const blockCode = (v: unknown) => {
+  const s = String(v ?? '').trim().toUpperCase();
+  if (!/^[A-Z0-9]{1,5}$/.test(s)) throw new WriteRefused(`Kode blok "${s}" tidak sah.`);
+  return s;
+};
+
+/** Ukuran blok dari CORE_YARD_BLOCK — batas yang boleh dikunci dan disisipkan. */
+async function blockDims(c: oracledb.Connection, code: string) {
+  const r = await c.execute<{ SLOTS: number; ROWS_: number; TIERS: number }>(
+    `SELECT TO_NUMBER(TRIM(yard_slot)) AS slots, TO_NUMBER(TRIM(yard_row)) AS rows_,
+            TO_NUMBER(TRIM(yard_tier)) AS tiers
+       FROM core_yard_block WHERE TRIM(yard_block) = :code`,
+    { code },
+    { outFormat: oracledb.OUT_FORMAT_OBJECT },
+  );
+  const row = r.rows?.[0];
+  if (!row) throw new WriteRefused(`Blok ${code} tidak ada di CORE_YARD_BLOCK.`);
+  return { slots: Number(row.SLOTS), rows: Number(row.ROWS_), tiers: Number(row.TIERS) };
+}
+
+function checkRef(p: SlotRef, d: { slots: number; rows: number; tiers: number }) {
+  const slot = Number(p.slot);
+  const row = Number(p.row);
+  // YARD_SLOT ganjil 1, 3, … 2n-1 — lihat createBlock.
+  if (!Number.isInteger(slot) || slot < 1 || slot > d.slots * 2 - 1 || slot % 2 === 0) {
+    throw new WriteRefused(`Slot ${p.slot} di luar blok (1..${d.slots * 2 - 1}, ganjil).`);
+  }
+  if (!Number.isInteger(row) || row < 1 || row > d.rows) {
+    throw new WriteRefused(`Row ${p.row} di luar blok (1..${d.rows}).`);
+  }
+  return { slot, row };
+}
+
+/**
+ * Mengunci slot: menghapus baris tier `tier` sampai tier teratas di satu
+ * (blok, slot, row).
+ *
+ * Hanya baris KOSONG yang boleh hilang. Kalau masih ada kontainer di tier itu
+ * atau di atasnya — termasuk 40ft dari slot sebelahnya yang membentang ke slot
+ * ini — penguncian ditolak seluruhnya, bukan dikerjakan sebagian.
+ */
+export async function lockSlot(p: SlotRef): Promise<{ deleted: number }> {
+  assertEnabled();
+  const code = blockCode(p.block);
+  const c = await borrowConnection();
+  try {
+    const d = await blockDims(c, code);
+    const { slot, row } = checkRef(p, d);
+    const tier = Number(p.tier);
+    if (!Number.isInteger(tier) || tier < 1 || tier > d.tiers) {
+      throw new WriteRefused(`Tier ${p.tier} di luar blok (1..${d.tiers}).`);
+    }
+
+    const busy = await c.execute<{ TIER: number; NO: string | null; SLOT: number }>(
+      `SELECT TO_NUMBER(TRIM(y.yard_tier)) AS tier, TRIM(NVL(k.ctr_no, y.container_number)) AS no,
+              TO_NUMBER(TRIM(y.yard_slot)) AS slot
+         FROM yard_rowtier y
+         LEFT JOIN container k ON k.ctr_key = y.container_key
+        WHERE TRIM(y.yard_block) = :code
+          AND TO_NUMBER(TRIM(y.yard_row)) = :row_
+          AND TO_NUMBER(TRIM(y.yard_tier)) >= :tier
+          AND y.container_key IS NOT NULL
+          AND (TO_NUMBER(TRIM(y.yard_slot)) = :slot
+               -- 40ft di slot sebelah kiri membentang ke slot ini HANYA kalau
+               -- ia tercatat satu baris. Di database ini 40ft lazimnya punya
+               -- dua baris (slot 1 dan 3), dan baris keduanya sudah tertangkap
+               -- syarat pertama; menghitungnya lagi lewat slot-2 membuat 40ft
+               -- di 1+3 tampak menempati slot 5.
+               OR (TO_NUMBER(TRIM(y.yard_slot)) = :slot - 2 AND k.ctr_size >= 40
+                   AND (SELECT COUNT(*) FROM yard_rowtier y2 WHERE y2.container_key = y.container_key) = 1))
+        ORDER BY 1`,
+      { code, row_: row, tier, slot },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
+    );
+    const hit = busy.rows?.[0];
+    if (hit) {
+      throw new WriteRefused(
+        `Tidak bisa dikunci: tier ${hit.TIER} ${hit.SLOT !== slot ? `(40ft dari slot ${hit.SLOT}) ` : ''}` +
+          `masih berisi ${hit.NO ?? 'kontainer'}. Kunci hanya boleh mulai di atas kontainer teratas.`,
+      );
+    }
+
+    const res = await c.execute(
+      `DELETE FROM yard_rowtier
+        WHERE TRIM(yard_block) = :code
+          AND TO_NUMBER(TRIM(yard_slot)) = :slot
+          AND TO_NUMBER(TRIM(yard_row)) = :row_
+          AND TO_NUMBER(TRIM(yard_tier)) >= :tier
+          AND container_key IS NULL`,
+      { code, slot, row_: row, tier },
+    );
+    await c.commit();
+    const deleted = res.rowsAffected ?? 0;
+    if (depotLogging()) {
+      console.log(`[depot] kunci ${code} slot ${slot} row ${row} tier ${tier}+: ${deleted} baris dihapus`);
+    }
+    return { deleted };
+  } catch (e) {
+    await c.rollback().catch(() => {});
+    throw e;
+  } finally {
+    await c.close();
+  }
+}
+
+/**
+ * Menyisipkan kembali baris yang hilang. Tanpa `slot`/`row` = seluruh blok.
+ * Kolom pendamping disalin dari baris tetangga (lihat templateOf).
+ */
+async function insertMissing(code: string, slot: number | null, row: number | null) {
+  assertEnabled();
+  const c = await borrowConnection();
+  try {
+    const d = await blockDims(c, code);
+    if (slot !== null && row !== null) checkRef({ block: code, slot, row }, d);
+    const have = await existingCells(c, code);
+    const cells: { slot: number; row: number; tier: number }[] = [];
+    for (let i = 0; i < d.slots; i++) {
+      const s = i * 2 + 1;
+      if (slot !== null && s !== slot) continue;
+      for (let r = 1; r <= d.rows; r++) {
+        if (row !== null && r !== row) continue;
+        for (let t = 1; t <= d.tiers; t++) {
+          if (!have.has(`${s}:${r}:${t}`)) cells.push({ slot: s, row: r, tier: t });
+        }
+      }
+    }
+    const inserted = await insertCells(c, code, (await siteOf(c)).site, await templateOf(c, code), cells);
+    await c.commit();
+    if (depotLogging()) {
+      console.log(
+        `[depot] buka kunci ${code}${slot !== null ? ` slot ${slot} row ${row}` : ' (seluruh blok)'}: ${inserted} baris disisipkan`,
+      );
+    }
+    return { inserted };
+  } catch (e) {
+    await c.rollback().catch(() => {});
+    throw e;
+  } finally {
+    await c.close();
+  }
+}
+
+// --- ubah ukuran blok ---------------------------------------------------------
+
+export type Resize = { code: string; slots: number; rows: number; tiers: number };
+export type ResizeResult = {
+  code: string;
+  from: { slots: number; rows: number; tiers: number };
+  to: { slots: number; rows: number; tiers: number };
+  deleted: number;
+  inserted: number;
+};
+
+/**
+ * Mengubah slot / row / tier sebuah blok di database: CORE_YARD_BLOCK diperbarui,
+ * baris YARD_ROWTIER di luar ukuran baru dihapus, dan baris untuk daerah yang
+ * BARU disisipkan.
+ *
+ * Hanya daerah baru yang disisipkan — bukan "semua yang hilang" — supaya slot
+ * yang sengaja dikunci (barisnya dihapus) tidak diam-diam terbuka lagi hanya
+ * karena bloknya diperbesar.
+ *
+ * Mengecilkan ditolak kalau ada kontainer di luar ukuran baru: baris berisi
+ * tidak pernah dihapus, dan blok yang ukurannya tidak memuat isinya sendiri
+ * adalah data yang berbohong. TEUS_AVA / TEUS_USED tidak disentuh — kolom itu
+ * dipelihara TOS.
+ */
+export async function resizeBlock(input: Resize): Promise<ResizeResult> {
+  assertEnabled();
+  const code = blockCode(input.code);
+  const to = { slots: Number(input.slots), rows: Number(input.rows), tiers: Number(input.tiers) };
+  for (const [k, v, max] of [
+    ['slot', to.slots, MAX_SLOTS],
+    ['row', to.rows, MAX_ROWS],
+    ['tier', to.tiers, MAX_TIERS],
+  ] as const) {
+    if (!Number.isInteger(v) || v < 1 || v > max) throw new WriteRefused(`Jumlah ${k} harus 1..${max}.`);
+  }
+  if (to.slots * to.rows * to.tiers > MAX_CELLS * 4) {
+    throw new WriteRefused(`Kapasitas ${to.slots * to.rows * to.tiers} slot terlalu besar.`);
+  }
+
+  const c = await borrowConnection();
+  try {
+    const from = await blockDims(c, code);
+    const maxSlot = to.slots * 2 - 1;
+
+    const busy = await c.execute<{ N: number; NO: string | null }>(
+      `SELECT COUNT(*) AS n, MIN(TRIM(container_number)) AS no
+         FROM yard_rowtier
+        WHERE TRIM(yard_block) = :code AND container_key IS NOT NULL
+          AND (TO_NUMBER(TRIM(yard_slot)) > :maxSlot
+               OR TO_NUMBER(TRIM(yard_row)) > :rows_
+               OR TO_NUMBER(TRIM(yard_tier)) > :tiers)`,
+      { code, maxSlot, rows_: to.rows, tiers: to.tiers },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
+    );
+    const outside = busy.rows?.[0];
+    if (outside && Number(outside.N) > 0) {
+      throw new WriteRefused(
+        `Tidak bisa dikecilkan: ${outside.N} kontainer berada di luar ukuran baru` +
+          `${outside.NO ? ` (antara lain ${outside.NO})` : ''}. Pindahkan dulu lewat TOS.`,
+      );
+    }
+
+    const del = await c.execute(
+      `DELETE FROM yard_rowtier
+        WHERE TRIM(yard_block) = :code AND container_key IS NULL
+          AND (TO_NUMBER(TRIM(yard_slot)) > :maxSlot
+               OR TO_NUMBER(TRIM(yard_row)) > :rows_
+               OR TO_NUMBER(TRIM(yard_tier)) > :tiers)`,
+      { code, maxSlot, rows_: to.rows, tiers: to.tiers },
+    );
+
+    const have = await existingCells(c, code);
+    const cells: { slot: number; row: number; tier: number }[] = [];
+    for (let i = 0; i < to.slots; i++) {
+      const s = i * 2 + 1;
+      for (let r = 1; r <= to.rows; r++) {
+        for (let t = 1; t <= to.tiers; t++) {
+          const fresh = i >= from.slots || r > from.rows || t > from.tiers;
+          if (fresh && !have.has(`${s}:${r}:${t}`)) cells.push({ slot: s, row: r, tier: t });
+        }
+      }
+    }
+    const inserted = await insertCells(c, code, (await siteOf(c)).site, await templateOf(c, code), cells);
+
+    await c.execute(
+      `UPDATE core_yard_block
+          SET yard_slot = :slots, yard_row = :rows_, yard_tier = :tiers,
+              upd_ts = SYSDATE, upd_by = :who
+        WHERE TRIM(yard_block) = :code`,
+      { slots: String(to.slots), rows_: String(to.rows), tiers: String(to.tiers), who: author(), code },
+    );
+    await c.commit();
+    const deleted = del.rowsAffected ?? 0;
+    if (depotLogging()) {
+      console.log(
+        `[depot] blok ${code} ${from.slots}x${from.rows}x${from.tiers} → ${to.slots}x${to.rows}x${to.tiers}: ` +
+          `${deleted} baris dihapus, ${inserted} disisipkan`,
+      );
+    }
+    return { code, from, to, deleted, inserted };
+  } catch (e) {
+    await c.rollback().catch(() => {});
+    throw e;
+  } finally {
+    await c.close();
+  }
+}
+
+/** Membuka satu kolom (blok, slot, row): semua tier yang hilang disisipkan kembali. */
+export async function unlockSlot(p: SlotRef): Promise<{ inserted: number }> {
+  return insertMissing(blockCode(p.block), Number(p.slot), Number(p.row));
+}
+
+/** Membuka seluruh blok. */
+export async function unlockBlock(block: string): Promise<{ inserted: number }> {
+  return insertMissing(blockCode(block), null, null);
 }

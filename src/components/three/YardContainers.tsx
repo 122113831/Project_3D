@@ -27,6 +27,7 @@ import {
 import { writeColors, writeMatrices } from '@/lib/instances';
 import type { YardBlock, YardContainer } from '@/lib/types';
 import { useYard } from '@/store/useYard';
+import { useEditor } from '@/store/useEditor';
 import { useYardView } from '@/store/useYardView';
 import { blockBounds, registerLod, updateLod } from './lodRegistry';
 import { registerPickable } from './pickRegistry';
@@ -354,9 +355,14 @@ function DetailedBlocks() {
 
 export function YardContainers() {
   const detail = useYard((s) => s.options.detail);
+  // Editor terbuka: kontainer disembunyikan supaya kisi slot dan alat
+  // terlihat. Disembunyikan lewat `visible`, bukan dilepas dari scene —
+  // melepasnya berarti mengunggah ulang seluruh matriks instance saat editor
+  // ditutup, dan di lapangan demo itu terasa.
+  const editing = useEditor((s) => s.open);
 
   return (
-    <>
+    <group visible={!editing}>
       <LodDriver />
       {detail ? (
         // Selama kedua GLB masih diunduh, lapangan sudah tampil penuh dengan
@@ -367,6 +373,6 @@ export function YardContainers() {
       ) : (
         <Blocks models={null} />
       )}
-    </>
+    </group>
   );
 }

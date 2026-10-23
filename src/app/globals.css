@@ -48,3 +48,55 @@ canvas {
   scrollbar-width: thin;
   scrollbar-color: rgb(255 255 255 / 0.18) transparent;
 }
+
+/* Kartu kontrol kiri: bilah gulir yang jelas terlihat, karena isinya memang
+   lebih panjang dari layar dan pengguna perlu tahu masih ada yang di bawah. */
+.hud-scroll {
+  scrollbar-color: rgb(148 163 184 / 0.55) rgb(255 255 255 / 0.04);
+  scrollbar-gutter: stable;
+}
+
+/* --- animasi masuk panel inspeksi ---------------------------------------- */
+/* Dipakai saat kontainer diklik: informasi meluncur dari kiri, kontainer
+   fisiknya dari kanan. Lengkungnya "keluar cepat, mendarat pelan" supaya
+   terasa seperti kartu yang ditaruh, bukan yang muncul begitu saja. */
+@keyframes hud-in-left {
+  from { opacity: 0; transform: translateX(-28px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes hud-in-right {
+  from { opacity: 0; transform: translateX(28px) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes hud-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes hud-shimmer {
+  from { background-position: -200% 0; }
+  to   { background-position: 200% 0; }
+}
+.anim-in-left  { animation: hud-in-left 0.42s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.anim-in-right { animation: hud-in-right 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.anim-rise     { animation: hud-rise 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.anim-shimmer {
+  background: linear-gradient(90deg, rgb(255 255 255 / 0.04) 25%, rgb(255 255 255 / 0.12) 50%, rgb(255 255 255 / 0.04) 75%);
+  background-size: 200% 100%;
+  animation: hud-shimmer 1.4s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .anim-in-left, .anim-in-right, .anim-rise, .anim-shimmer { animation: none; }
+}
+/* Dialog inspeksi muncul "ditaruh": sedikit lebih kecil dan lebih rendah, lalu
+   menetap. Dipakai bersama scrim yang hanya memudar. */
+@keyframes hud-pop {
+  from { opacity: 0; transform: translateY(14px) scale(0.965); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes hud-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.anim-pop  { animation: hud-pop 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.anim-fade { animation: hud-fade 0.3s ease-out both; }
+@media (prefers-reduced-motion: reduce) { .anim-pop, .anim-fade { animation: none; } }

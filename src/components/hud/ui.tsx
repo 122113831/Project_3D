@@ -1,17 +1,24 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 
 export const nf = (n: number) => n.toLocaleString('id-ID');
 
 export function Panel({
   children,
   className = '',
+  style,
 }: {
   children: ReactNode;
   className?: string;
+  /** Untuk ukuran yang datang dari konstanta kode, bukan dari kelas Tailwind. */
+  style?: CSSProperties;
 }) {
-  return <div className={`hud-panel ${className}`}>{children}</div>;
+  return (
+    <div className={`hud-panel ${className}`} style={style}>
+      {children}
+    </div>
+  );
 }
 
 export function Section({ title, children }: { title: string; children: ReactNode }) {

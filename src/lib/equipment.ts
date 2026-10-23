@@ -1,5 +1,5 @@
 import { APRON, LANE, PITCH, RTG, rtgAssetScale, rtgSpanScale } from './constants';
-import { newId, type LayoutEquipment } from './layout';
+import type { LayoutEquipment } from './layout';
 import { mulberry32 } from './random';
 import type { YardBlock } from './types';
 
@@ -33,8 +33,12 @@ export function generateEquipment(
 
     // Satu RTG per blok, di bay acak.
     const bay = Math.floor(rng() * Math.max(1, b.slots - 4)) + 2;
+    // Id DETERMINISTIK, bukan acak: daftar ini dibangkitkan ulang di beberapa
+    // komponen secara terpisah, dan RTG yang sedang bekerja dikenali lewat
+    // id-nya. Dengan id acak, Equipment dan RtgWorks memegang id yang berbeda
+    // untuk alat yang sama, dan alat itu tergambar dua kali.
     out.push({
-      id: newId('rtg'),
+      id: `rtg-${b.id}`,
       kind: 'rtg',
       x: b.originX + Math.min(bay, b.slots - 1) * PITCH.teu,
       z: b.originZ + width / 2 + RTG.offsetZ,
@@ -46,7 +50,7 @@ export function generateEquipment(
     for (let i = 0; i < n; i++) {
       const lane = TRUCK_LANES[Math.floor(rng() * TRUCK_LANES.length)];
       out.push({
-        id: newId('trk'),
+        id: `trk-${b.id}-${i}`,
         kind: 'truck',
         // Rig traktor + chassis ~15,4 m: 11 m di belakang titik penempatan dan
         // 4,5 m di depannya. Marginnya menjaga rig tidak menjulur keluar blok.
@@ -64,14 +68,14 @@ export function generateEquipment(
   const cols = Math.max(2, Math.round(extentX / 120));
   for (let i = 0; i <= cols; i++) {
     const x = -extentX / 2 + (i * extentX) / cols;
-    out.push({ id: newId('lmp'), kind: 'lamp', x, z: -halfZ, ry: 0 });
-    out.push({ id: newId('lmp'), kind: 'lamp', x, z: halfZ, ry: Math.PI });
+    out.push({ id: `lmp-n-${i}`, kind: 'lamp', x, z: -halfZ, ry: 0 });
+    out.push({ id: `lmp-s-${i}`, kind: 'lamp', x, z: halfZ, ry: Math.PI });
   }
   const rows = Math.max(1, Math.round(extentZ / 140));
   for (let i = 0; i <= rows; i++) {
     const z = -extentZ / 2 + (i * extentZ) / rows;
-    out.push({ id: newId('lmp'), kind: 'lamp', x: -halfX, z, ry: Math.PI / 2 });
-    out.push({ id: newId('lmp'), kind: 'lamp', x: halfX, z, ry: -Math.PI / 2 });
+    out.push({ id: `lmp-w-${i}`, kind: 'lamp', x: -halfX, z, ry: Math.PI / 2 });
+    out.push({ id: `lmp-e-${i}`, kind: 'lamp', x: halfX, z, ry: -Math.PI / 2 });
   }
 
   return out;

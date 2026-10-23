@@ -6,6 +6,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { containerPosition } from '@/lib/yard';
 import type { YardContainer } from '@/lib/types';
+import { useEditor } from '@/store/useEditor';
 import { useYard } from '@/store/useYard';
 import { useYardView } from '@/store/useYardView';
 
@@ -26,7 +27,8 @@ type Tagged = { c: YardContainer; pos: THREE.Vector3 };
  */
 export function NearbyLabels() {
   const data = useYardView();
-  const enabled = useYard((s) => s.options.labels);
+  const editing = useEditor((s) => s.open);
+  const enabled = useYard((s) => s.options.labels) && !editing;
   const [visible, setVisible] = useState<Tagged[]>([]);
   const acc = useRef(0);
 

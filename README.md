@@ -349,6 +349,67 @@ bersama oleh renderer, penanda seleksi, dan kamera.
 Ubah `YARD` di [constants.ts](src/lib/constants.ts) untuk menyesuaikan bentuk
 lapangan dengan terminal yang sebenarnya.
 
+### Mengunci slot
+
+Di editor ("Sunting lapangan"), kontainer disembunyikan dan tiap blok digambar
+sebagai kisi sel slot × row × tier — yang terlihat wadahnya, bukan isinya. Sel
+abu-abu berarti sudah berisi kontainer. Tombol **Kunci slot** (di palet bawah
+atau panel kanan) lalu mengubah klik pada sel menjadi kunci:
+
+- klik sel bebas → slot itu dikunci **dari tier tersebut sampai tier teratas**
+  (tumpukan tidak bisa melompati lubang, jadi mengunci slot 1 tier 1 berarti
+  seluruh kolom slot 1 tertutup);
+- klik sel merah → seluruh kolomnya dibuka lagi;
+- "buka semua" di panel membuka satu blok sekaligus.
+
+Di lapangan **database**, mengunci = **menghapus baris YARD_ROWTIER** sel itu
+sampai tier teratas, dan membuka = **menyisipkannya kembali** (SITE_ID, STATUS,
+PCH disalin dari baris tetangga; ID baru dari `SEQ_ID`). Menu stack/unstack
+TOS memilih tempat dari tabel itu, jadi slot yang barisnya hilang tidak bisa
+ditumpuki — tanpa perubahan apa pun di TOS. Hanya baris kosong yang dihapus:
+kunci ditolak kalau di tier itu atau di atasnya masih ada kontainer, termasuk
+40ft dari slot sebelahnya. Sebaliknya, aplikasi ini membaca kunci dari baris
+yang hilang, jadi baris yang dihapus lewat jalur lain juga tampil terkunci.
+Endpointnya `POST /api/yard/slots`, lewat saklar `DEPOT_DB_WRITE`. Di lapangan
+**demo**, yang tidak punya tabel, kunci disimpan di YARD_LAYOUT.
+
+Animasi truk ikut menghormatinya: bongkar (receiving) yang tujuannya slot
+terkunci ditolak sebelum truk berangkat, dengan alasannya di panel lalu lintas.
+
+Slot terkunci dikeluarkan dari kapasitas: okupansi
+di bar atas, papan kapasitas tiap blok (🔒 n), dan "sisa box" ikut turun. Di
+luar editor sel terkunci tetap tampak sebagai kotak merah redup. Logikanya di
+[slots.ts](src/lib/slots.ts) dan diuji di `tests/slots.test.ts`.
+
+### Mengubah ukuran blok
+
+Mengetik slot/row/tier di panel properti hanya mengubah tampilan. Begitu
+angkanya berbeda dari database, dua tombol muncul di bawahnya:
+
+- **Geser yang terdampak** — blok tumbuh dari sudut asalnya (+slot ke ujung,
+  +row ke sisi), jadi semua jalan, alat, dan blok lain yang pusatnya berada di
+  luar tepi lama pada arah itu didorong sejauh pertumbuhannya. Yang bergeser
+  tetap saling tersambung karena bergeser bersama; jalan sejajar yang
+  melintasi tepi lama disambung dengan ubin lurus sepanjang celahnya. Tidak
+  dilakukan otomatis — labelnya menyebut berapa jalan/alat/blok yang akan
+  pindah — karena blok lain yang bergeser posisinya tersimpan ke
+  CORE_YARD_BLOCK. Logikanya di [shift.ts](src/lib/shift.ts).
+- **Simpan ukuran ke database** — CORE_YARD_BLOCK diperbarui, baris
+  YARD_ROWTIER di luar ukuran baru dihapus (hanya yang kosong; mengecilkan
+  ditolak kalau ada kontainer di luar ukuran baru), dan baris untuk daerah
+  baru disisipkan. Slot yang sedang dikunci tidak ikut terbuka. Endpointnya
+  `POST /api/yard/block/resize`.
+
+Urutan yang disarankan: ubah angka → geser terdampak → simpan ukuran.
+
+### Pemeriksaan tata letak
+
+Bagian **Pemeriksaan** di panel editor mendaftar yang perlu dibetulkan: blok
+bertindihan, ubin jalan tertimpa blok, alat di dalam blok, gate yang tidak
+menempel jalan, belum ada gate masuk/keluar, dan blok yang tidak tersambung
+jalan ke gate. Klik satu baris untuk menerbangkan kamera ke lokasinya. Aturannya
+di [validate.ts](src/lib/validate.ts), diuji di `tests/validate.test.ts`.
+
 ## Cara pakai
 
 - Drag = orbit, scroll = zoom, klik kanan drag = geser
@@ -356,6 +417,55 @@ lapangan dengan terminal yang sebenarnya.
 - Ketik nomor kontainer di kotak pencarian, tekan Enter — kamera terbang ke sana
 - Panel kiri: mode pewarnaan, filter shipping line / status / ukuran, kepadatan
   lapangan, dan opsi tampilan
+
+## Aliran langsung: gate in → ditangani → gate out
+
+Truk gate dianimasikan dari KEJADIAN, bukan dari posisi yang dilacak: masuk
+lewat gerbang, menunggu di dalam gerbang sampai slotnya diketahui, menepi di
+lajur layanan bay tujuannya, dilayani RTG (portal berjalan, spreader turun,
+kontainer berpindah), lalu keluar lewat gerbang. Tumpukan ditambal setempat
+pada saat spreader mengangkat/melepas kontainer — tanpa memuat ulang lapangan.
+
+Jaringan jalannya dibangun ulang dari tata letak setiap kali tata letak berubah
+([src/lib/roadGraph.ts](src/lib/roadGraph.ts)); tambah jalan atau blok baru,
+truk berikutnya langsung memakainya.
+
+Tiga sumber kejadian masuk lewat SATU pintu (`useTraffic.ingest`):
+
+| sumber | cara |
+|---|---|
+| HiveMQ | server berlangganan `MQTT_TOPIC` di `MQTT_URL` (lihat `.env.example`); kredensial tetap di server |
+| HTTP | `POST /api/yard/events` — satu objek atau daftar; header `x-events-secret` kalau `EVENTS_SECRET` diisi |
+| pemutar ulang | tombol **Putar ulang** di HUD memutar `GATE_HIST` terakhir sebagai aliran tiruan |
+
+Peramban menerima semuanya lewat SSE `GET /api/yard/events`, dan saat tersambung
+menarik dulu perjalanan yang sudah gate in tapi belum gate out (`/api/yard/trips?open=1`).
+
+Bentuk pesan yang diterima ([src/lib/liveEvents.ts](src/lib/liveEvents.ts)) —
+satu baris `GATE_HIST` apa adanya sudah cukup; jenis kejadiannya diturunkan
+dari kolom waktu yang terisi paling akhir:
+
+```json
+{ "JOB_NO": "26003277", "CTR_NO": "PASK3928749", "TRUCK_NO": "BK0394KK",
+  "RECEIV_DELIV": "R", "GATI_NO": 1, "GATI_DT": "2026-10-08T22:47:00Z",
+  "STACK_ON_YARD": null, "GATO_DT": null }
+```
+
+atau bentuk ringkas `{ "event": "GATE_IN" | "HANDLED" | "GATE_OUT", "ctrNo", "truckNo", "jobNo", "flow": "R"|"D", "gateNo" }`.
+Kalau pesan tidak membawa posisi, peramban bertanya `GET /api/yard/container?no=…`
+saat kejadian "ditangani" datang.
+
+Uji cepat tanpa broker:
+
+```bash
+curl -X POST localhost:3000/api/yard/events -H "Content-Type: application/json" \
+  -d '{"event":"GATE_IN","jobNo":"UJI1","ctrNo":"RCLU1231243","truckNo":"B 1 UJI","flow":"D","gateNo":1}'
+```
+
+Panel kanan HUD menampilkan status koneksi, kartu truk yang diklik (dengan
+kamera pengikut dan jejak rute), indikator KPI (`GET /api/yard/kpi`), dan
+minimap. Uji otomatis untuk graf jalan, penjepret jalan, dan penormal pesan:
+`npm test`.
 
 ## Menyambung ke data TOS
 

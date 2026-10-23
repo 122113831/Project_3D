@@ -195,7 +195,7 @@ export function EditorTools() {
       // hantunya berbohong soal tempat ubin akan mendarat.
       const g = ghost.current;
       const store = useEditor.getState();
-      if (g && store.tool !== 'select') {
+      if (g && store.tool === 'place') {
         const item = findItem(store.assetId);
         if (item?.spec.kind === 'road') {
           const fit = fitRoad(item.spec.road.kind, p.x, p.z);
@@ -238,10 +238,9 @@ export function EditorTools() {
       if (!p) return;
       const store = useEditor.getState();
       if (!store.layout) return;
-      if (store.tool === 'select') {
-        store.select(hitTest(store.layout, ray.ray));
-      }
-      else store.place(p.x, p.z);
+      if (store.tool === 'select') store.select(hitTest(store.layout, ray.ray));
+      else if (store.tool === 'place') store.place(p.x, p.z);
+      // Modus 'slots' ditangani SlotGrid: kliknya mengenai sel, bukan objek.
       invalidate();
     };
 
@@ -320,7 +319,7 @@ export function EditorTools() {
   // Tanpa ini tidak ada apa pun di layar yang memberi tahu ke petak mana ubin
   // akan mendarat, jadi dua ubin gampang tertaruh berjauhan satu petak dan
   // jalannya tampak "tidak nyambung" padahal penjepretannya benar.
-  const roadArmed = tool !== 'select' && active?.spec.kind === 'road';
+  const roadArmed = tool === 'place' && active?.spec.kind === 'road';
   const span = Math.ceil((Math.max(extentX, extentZ) * 1.6) / ROAD.tile) * ROAD.tile;
   const gridX = Math.round(centerX / ROAD.tile) * ROAD.tile;
   const gridZ = Math.round(centerZ / ROAD.tile) * ROAD.tile;
@@ -341,7 +340,7 @@ export function EditorTools() {
         />
       )}
 
-      {tool !== 'select' && (
+      {tool === 'place' && (
         <mesh ref={ghost} position-y={0.09}>
           <boxGeometry args={[ghostSize.x, 0.1, ghostSize.z]} />
           <meshBasicMaterial color="#38bdf8" transparent opacity={0.35} depthWrite={false} />

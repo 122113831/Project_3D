@@ -27,6 +27,7 @@ import {
   createRtgSpreaderGeometry,
 } from '@/lib/geometry';
 import { useEditor } from '@/store/useEditor';
+import { useTraffic } from '@/store/useTraffic';
 import { useYard } from '@/store/useYard';
 import { useYardView } from '@/store/useYardView';
 
@@ -158,14 +159,25 @@ useGLTF.preload(STS_MODEL_URL, false, false);
 
 export function Equipment() {
   const data = useYardView();
-  const { rtg, lamps, trucks } = useYard((s) => s.options);
+  const { rtg, lamps, trucks, night } = useYard((s) => s.options);
   const layoutEquipment = useEditor((s) => s.layout?.equipment);
+  // RTG yang sedang bekerja digambar RtgWorks dengan transform per frame;
+  // di sini ia dikeluarkan supaya tidak tergambar dua kali.
+  const busyRtg = useTraffic((s) => s.busyRtg);
 
   const geo = useMemo(
     () => ({
       rtg: createRtgGeometry(),
       spreader: createRtgSpreaderGeometry(),
       lamp: createLampGeometry(),
+      // Kepala lampu yang menyala di malam hari: bola kecil tepat di bawah
+      // dudukan lampu (puncak tiang 34,6 m). Material tanpa pencahayaan membuat
+      // bolanya tampak berpendar sendiri tanpa menambah light ke scene.
+      lampGlow: (() => {
+        const g = new THREE.SphereGeometry(1.1, 10, 8);
+        g.translate(0, 33.9, 0);
+        return g;
+      })(),
       chassis: createChassisGeometry(),
       load: createChassisLoadGeometry(),
       gate: createGateGeometry(),
@@ -174,6 +186,7 @@ export function Equipment() {
       gateSign: createGateSignGeometry('full'),
       gateSignIn: createGateSignGeometry('in'),
       gateSignOut: createGateSignGeometry('out'),
+      lampGlowMat: new THREE.MeshBasicMaterial({ color: '#ffe3a1' }),
     }),
     [],
   );
@@ -213,6 +226,7 @@ export function Equipment() {
     const gateHalfOut: Placement[] = [];
 
     for (const it of items) {
+      if ((it.kind === 'rtg' || it.kind === 'rtgAsset') && busyRtg.includes(it.id)) continue;
       if (it.kind === 'rtg') {
         // Bentang portal diambil dari blok terdekat, jadi RTG yang digeser ke
         // blok lain langsung menyesuaikan lebarnya sendiri.
@@ -288,7 +302,7 @@ export function Equipment() {
       gateHalfIn,
       gateHalfOut,
     };
-  }, [data, layoutEquipment]);
+  }, [data, layoutEquipment, busyRtg]);
 
   return (
     <group>
@@ -301,6 +315,9 @@ export function Equipment() {
         </>
       )}
       {lamps && <InstancedProps geometry={geo.lamp} color="#6f7681" items={placement.lampList} />}
+      {lamps && night && (
+        <InstancedProps geometry={geo.lampGlow} material={geo.lampGlowMat} items={placement.lampList} />
+      )}
 
       {/* Gate: rangka abu-abu bersama, papan nama hijau untuk masuk dan merah
           untuk keluar — dua-duanya terbaca dari pandangan atas. */}

@@ -1,6 +1,8 @@
 import oracledb from 'oracledb';
 import { PITCH, YARD } from './constants';
+import { blockedCount } from './slots';
 import type {
+  BlockedCell,
   ContainerSize,
   ContainerStatus,
   ContainerType,
@@ -170,6 +172,40 @@ function statusOf(row: DepotRow): ContainerStatus {
  */
 const isoDate = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/**
+ * Satu baris hasil CONTAINER_SQL menjadi YardContainer.
+ *
+ * Dipakai dua kali: saat memuat seluruh lapangan, dan saat aliran langsung
+ * bertanya tentang SATU kontainer yang baru ditangani. Kalau pemetaannya
+ * ditulis dua kali, cepat atau lambat keduanya berselisih — dan selisihnya
+ * baru terlihat sebagai kontainer yang berubah rupa setelah halaman dimuat ulang.
+ */
+function toContainer(r: DepotRow, blockId: string): YardContainer {
+  return {
+    no: r.CTR_NO?.trim() || '(tanpa nomor)',
+    size: sizeOf(r.CTR_SIZE),
+    type: typeOf(r.CTR_TYPE),
+    status: statusOf(r),
+    line: r.AGENT?.trim() || 'LAIN',
+    block: blockId,
+    // Slot ganjil 1, 3, 5, … -> indeks posisi 0, 1, 2, … Sebuah 40ft
+    // membentang dari sini ke posisi berikutnya, sesuai dua barisnya di
+    // YARD_ROWTIER.
+    bay: Math.max(0, (Number(r.YARD_SLOT) - 1) / 2),
+    row: Math.max(0, Number(r.YARD_ROW) - 1),
+    tier: Math.max(1, Number(r.YARD_TIER)),
+    weightKg: weightOf(r),
+    vessel: r.VESSEL_NAME?.trim() || '—',
+    inDate: isoDate(r.RECEIV_DATE ?? new Date()),
+    filled: r.CTR_STATUS?.trim().toUpperCase() === 'F',
+    damaged: r.IS_DAMAGE?.trim().toUpperCase() === 'Y',
+    typeCode: r.CTR_TYPE?.trim().toUpperCase() || '',
+    isoCode: r.ISO_CODE?.trim().toUpperCase() || '',
+    reefer: isReefer(r),
+    dangerous: isDangerous(r),
+  };
+}
 
 const weightOf = (row: DepotRow): number => {
   if (row.GROSS !== null) return Math.round(Number(row.GROSS));
@@ -505,11 +541,59 @@ function countDuplicateNumbers(blocks: readonly YardBlock[]): number {
 
 // --- publik -----------------------------------------------------------------
 
+/** Semua sel yang PUNYA baris di YARD_ROWTIER — kosong maupun berisi. */
+const CELL_SQL = `
+  SELECT TRIM(yard_block)              AS yard_block,
+         TO_NUMBER(TRIM(yard_slot))    AS yard_slot,
+         TO_NUMBER(TRIM(yard_row))     AS yard_row,
+         TO_NUMBER(TRIM(yard_tier))    AS yard_tier
+    FROM yard_rowtier`;
+
+type CellRow = { YARD_BLOCK: string; YARD_SLOT: number; YARD_ROW: number; YARD_TIER: number };
+
+/**
+ * Slot terkunci = sel di dalam ukuran blok yang barisnya TIDAK ADA di
+ * YARD_ROWTIER (lihat lockSlot di depotWrite.ts).
+ *
+ * Per kolom (slot, row), dasar kuncinya adalah tier terendah yang dari situ
+ * sampai tier teratas semuanya tidak punya baris. Lubang di tengah kolom yang
+ * di atasnya masih ada baris tidak dihitung kunci — tumpukan memang tidak bisa
+ * melompatinya, tapi itu data yang rusak, bukan kunci yang disengaja.
+ *
+ * Blok yang sama sekali tidak punya baris dilewati: itu bukan "seluruhnya
+ * terkunci", melainkan blok yang inventaris slotnya belum pernah dibuat.
+ */
+function lockedFromRowtier(blocks: YardBlock[], cells: CellRow[]) {
+  const have = new Map<string, Set<string>>();
+  for (const c of cells) {
+    const id = c.YARD_BLOCK?.trim();
+    if (!id) continue;
+    let s = have.get(id);
+    if (!s) have.set(id, (s = new Set()));
+    s.add(`${Number(c.YARD_SLOT)}:${Number(c.YARD_ROW)}:${Number(c.YARD_TIER)}`);
+  }
+  for (const b of blocks) {
+    const s = have.get(b.id);
+    if (!s || s.size === 0) continue;
+    const out: BlockedCell[] = [];
+    for (let bay = 0; bay < b.slots; bay++) {
+      const slot = bay * 2 + 1;
+      for (let row = 1; row <= b.rows; row++) {
+        let base = b.tiers + 1;
+        while (base > 1 && !s.has(`${slot}:${row}:${base - 1}`)) base--;
+        if (base <= b.tiers) out.push({ bay, row: row - 1, tier: base });
+      }
+    }
+    b.blocked = out;
+  }
+}
+
 export async function fetchDepotYard(): Promise<YardData> {
   const started = Date.now();
-  const [blockRows, rows] = await Promise.all([
+  const [blockRows, rows, cells] = await Promise.all([
     query<BlockRow>('daftar blok', BLOCK_SQL),
     query<DepotRow>('kontainer di slot', CONTAINER_SQL),
+    query<CellRow>('sel slot', CELL_SQL),
   ]);
 
   const { blocks, extentX, extentZ, centerX, centerZ, transform } = layout(blockRows);
@@ -527,33 +611,9 @@ export async function fetchDepotYard(): Promise<YardData> {
       skipped++;
       continue;
     }
-    const size = sizeOf(r.CTR_SIZE);
-    const line = r.AGENT?.trim() || 'LAIN';
+    const container = toContainer(r, block.id);
+    const { size, line } = container;
     if (!lines.has(line)) lines.set(line, { code: line, name: line });
-
-    const container: YardContainer = {
-      no: r.CTR_NO?.trim() || '(tanpa nomor)',
-      size,
-      type: typeOf(r.CTR_TYPE),
-      status: statusOf(r),
-      line,
-      block: block.id,
-      // Slot ganjil 1, 3, 5, … -> indeks posisi 0, 1, 2, … Sebuah 40ft
-      // membentang dari sini ke posisi berikutnya, sesuai dua barisnya di
-      // YARD_ROWTIER.
-      bay: Math.max(0, (Number(r.YARD_SLOT) - 1) / 2),
-      row: Math.max(0, Number(r.YARD_ROW) - 1),
-      tier: Math.max(1, Number(r.YARD_TIER)),
-      weightKg: weightOf(r),
-      vessel: r.VESSEL_NAME?.trim() || '—',
-      inDate: isoDate(r.RECEIV_DATE ?? new Date()),
-      filled: r.CTR_STATUS?.trim().toUpperCase() === 'F',
-      damaged: r.IS_DAMAGE?.trim().toUpperCase() === 'Y',
-      typeCode: r.CTR_TYPE?.trim().toUpperCase() || '',
-      isoCode: r.ISO_CODE?.trim().toUpperCase() || '',
-      reefer: isReefer(r),
-      dangerous: isDangerous(r),
-    };
     slotRows.set(container, Number(r.SLOT_ROWS) || 1);
     block.containers.push(container);
     totalTeu += size === 40 ? 2 : 1;
@@ -569,8 +629,13 @@ export async function fetchDepotYard(): Promise<YardData> {
     0,
   );
 
+  lockedFromRowtier(blocks, cells);
+
   const totalContainers = blocks.reduce((n, b) => n + b.containers.length, 0);
-  const capacityTeu = blocks.reduce((n, b) => n + b.slots * b.rows * b.tiers, 0);
+  const capacityTeu = blocks.reduce(
+    (n, b) => n + b.slots * b.rows * b.tiers - blockedCount(b.blocked, b),
+    0,
+  );
 
   if (LOGGING) {
     console.log(
@@ -606,4 +671,92 @@ export async function closeDepotPool() {
   if (!p) return;
   globalForPool.depotPool = undefined;
   (await p).close(0).catch(() => {});
+}
+
+// --- perjalanan truk (GATE_HIST) ---------------------------------------------
+
+/**
+ * Satu baris GATE_HIST = satu perjalanan truk, lengkap dengan tiga titik
+ * waktunya: gate in, ditangani di lapangan, gate out.
+ *
+ * Dipakai pemutar ulang di HUD, dan kelak sebagai pemulih keadaan saat
+ * aliran MQTT tersambung — perjalanan yang sudah gate in tapi belum gate out
+ * harus sudah punya truk di lapangan sebelum pesan berikutnya datang.
+ */
+export type GateTrip = {
+  jobNo: string;
+  ctrNo: string;
+  truckNo: string;
+  /** R = bongkar masuk (receiving), D = ambil keluar (delivery). */
+  flow: 'R' | 'D';
+  gateInNo: number | null;
+  gateOutNo: number | null;
+  gateIn: string | null;
+  /** Saat kontainer ditangani di lapangan — ditumpuk (R) atau diangkat ke truk (D). */
+  handled: string | null;
+  gateOut: string | null;
+};
+
+type GateRow = {
+  JOB_NO: string | null;
+  CTR_NO: string | null;
+  TRUCK_NO: string | null;
+  RECEIV_DELIV: string | null;
+  GATI_NO: number | null;
+  GATO_NO: number | null;
+  GATI_DT: Date | null;
+  STACK_ON_YARD: Date | null;
+  STACK_ON_TRK: Date | null;
+  GATO_DT: Date | null;
+};
+
+export async function readGateTrips(limit: number, openOnly = false): Promise<GateTrip[]> {
+  const n = Math.max(1, Math.min(200, Math.floor(limit) || 20));
+  // openOnly: perjalanan yang sudah gate in tapi belum gate out — truk yang
+  // SEHARUSNYA sedang ada di lapangan saat peramban baru tersambung.
+  const open = openOnly ? 'AND gato_dt IS NULL' : '';
+  const rows = await query<GateRow>(
+    'gate_hist',
+    `SELECT * FROM (
+       SELECT TRIM(job_no) AS job_no, TRIM(ctr_no) AS ctr_no, TRIM(truck_no) AS truck_no,
+              TRIM(receiv_deliv) AS receiv_deliv, gati_no, gato_no,
+              gati_dt, stack_on_yard, stack_on_trk, gato_dt
+         FROM gate_hist
+        WHERE gati_dt IS NOT NULL ${open}
+        ORDER BY gati_dt DESC)
+      WHERE ROWNUM <= ${n}`,
+  );
+  const iso = (d: Date | null) => (d ? d.toISOString() : null);
+  return rows.map((r) => ({
+    jobNo: r.JOB_NO ?? '',
+    ctrNo: r.CTR_NO ?? '',
+    truckNo: r.TRUCK_NO ?? '',
+    flow: r.RECEIV_DELIV?.toUpperCase() === 'D' ? 'D' : 'R',
+    gateInNo: r.GATI_NO,
+    gateOutNo: r.GATO_NO,
+    gateIn: iso(r.GATI_DT),
+    // Untuk delivery kolom yang terisi bisa STACK_ON_TRK — kontainer diangkat
+    // ke atas truk, bukan ditumpuk.
+    handled: iso(r.STACK_ON_YARD ?? r.STACK_ON_TRK),
+    gateOut: iso(r.GATO_DT),
+  }));
+}
+
+/**
+ * Satu kontainer menurut nomornya, beserta posisinya sekarang — null kalau
+ * tidak sedang menempati slot mana pun (sudah keluar, atau belum ditumpuk).
+ *
+ * Memakai CONTAINER_SQL yang sama dengan pemuat lapangan, jadi dedup baris
+ * 40ft dan semua pemetaan kolomnya ikut tanpa ditulis ulang.
+ */
+export async function readContainer(no: string): Promise<YardContainer | null> {
+  const clean = no.trim().toUpperCase();
+  // Dimasukkan ke SQL sebagai literal, jadi bentuknya dibatasi ketat dulu.
+  if (!/^[A-Z0-9]{1,20}$/.test(clean)) return null;
+  const rows = await query<DepotRow>(
+    'container ' + clean,
+    `SELECT * FROM (${CONTAINER_SQL}) WHERE ctr_no = '${clean}'`,
+  );
+  const r = rows[0];
+  return r ? toContainer(r, r.YARD_BLOCK?.trim() ?? '') : null;
 }

@@ -128,7 +128,8 @@ function box(w: number, h: number, d: number, x: number, y: number, z: number) {
  * spreader yang menggantung lebih rendah cepat atau lambat pasti menembus
  * sebuah tumpukan penuh.
  */
-const SPREADER_Y = RTG.height - 6.4;
+/** Diekspor: animasi RTG perlu tahu di ketinggian berapa geometri spreader dibangun. */
+export const SPREADER_Y = RTG.height - 6.4;
 /** Posisi trolley pada sumbu Z: tepat di atas sumbu blok, bukan sumbu portal. */
 const TROLLEY_Z = -RTG.offsetZ;
 const TROLLEY_Y = RTG.height + 3.05;

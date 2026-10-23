@@ -1,5 +1,6 @@
 import { GATE, PITCH, ROAD, RTG, YARD, type RoadKind } from './constants';
-import type { BlockSide, YardBlock, YardData, YardSource } from './types';
+import { blockedCount, normalizeBlocked } from './slots';
+import type { BlockedCell, BlockSide, YardBlock, YardData, YardSource } from './types';
 
 /**
  * Tata letak lapangan hasil suntingan.
@@ -133,6 +134,13 @@ export type YardLayout = {
   blocks: LayoutBlock[];
   equipment: LayoutEquipment[];
   roads: LayoutRoad[];
+  /**
+   * Kolom slot yang dikunci, per kode blok. Lihat slots.ts: yang dicatat cuma
+   * dasar tiap kolom, dan kunci berlaku sampai tier teratas.
+   *
+   * Opsional karena tata letak yang tersimpan sebelum fitur ini tidak punya.
+   */
+  blocked?: Record<string, BlockedCell[]>;
   savedAt: string;
   /**
    * Lapangan mana yang ditata: 'depot' atau 'demo'.
@@ -188,6 +196,7 @@ export const emptyLayout = (): YardLayout => ({
   blocks: [],
   equipment: [],
   roads: [],
+  blocked: {},
   savedAt: new Date().toISOString(),
 });
 
@@ -227,6 +236,7 @@ export function loadLayout(source: YardSource): YardLayout | null {
       ...parsed,
       equipment: parsed.equipment ?? [],
       roads: parsed.roads ?? [],
+      blocked: parsed.blocked ?? {},
       source,
     };
   } catch {
@@ -334,6 +344,17 @@ export function applyLayout(data: YardData, layout: YardLayout | null): YardData
       truckLane: lb.truckLane ?? src?.truckLane ?? 'L',
       slotStart: lb.slotStart ?? src?.slotStart ?? 'L',
       containers,
+      // Dirapikan di sini sekali, supaya semua yang menggambar atau menghitung
+      // menerima daftar yang sudah pasti di dalam ukuran blok.
+      //
+      // Lapangan database: kunci HANYA dari YARD_ROWTIER (baris yang hilang),
+      // tabel yang juga dibaca menu stack TOS — tampilan tidak boleh
+      // menunjukkan kunci yang tidak dilihat TOS. Lapangan demo tidak punya
+      // tabel, jadi kuncinya dari tata letak.
+      blocked: normalizeBlocked(
+        data.meta.source === 'depot' ? src?.blocked : layout.blocked?.[lb.id],
+        lb,
+      ),
     };
   });
 
@@ -342,7 +363,12 @@ export function applyLayout(data: YardData, layout: YardLayout | null): YardData
     (n, b) => n + b.containers.reduce((m, c) => m + (c.size === 40 ? 2 : 1), 0),
     0,
   );
-  const capacityTeu = blocks.reduce((n, b) => n + b.slots * b.rows * b.tiers, 0);
+  // Slot yang dikunci bukan kapasitas: okupansi 100% harus berarti semua slot
+  // yang BOLEH dipakai sudah terisi.
+  const capacityTeu = blocks.reduce(
+    (n, b) => n + b.slots * b.rows * b.tiers - blockedCount(b.blocked, b),
+    0,
+  );
 
   // Luas lapangan diukur ulang dari kotak nyata blok-blok hasil suntingan.
   let minX = Infinity;

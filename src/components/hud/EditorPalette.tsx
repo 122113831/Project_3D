@@ -9,6 +9,7 @@ import {
 } from '@/lib/editorAssets';
 import { renderThumbnails } from '@/lib/thumbnails';
 import { useEditor } from '@/store/useEditor';
+import { useYardView } from '@/store/useYardView';
 
 // Gate diletakkan setelah Jalan karena ia berdiri DI ATAS jalan — urutan
 // tabnya mengikuti urutan orang membangun lapangan.
@@ -29,6 +30,11 @@ export function EditorPalette() {
   const assetId = useEditor((s) => s.assetId);
   const setAsset = useEditor((s) => s.setAsset);
   const openNewBlock = useEditor((s) => s.openNewBlock);
+  const busy = useEditor((s) => s.busy);
+  const note = useEditor((s) => s.note);
+  const lockTier = useEditor((s) => s.lockTier);
+  const setLockTier = useEditor((s) => s.setLockTier);
+  const maxTiers = useYardView()?.blocks.reduce((m, b) => Math.max(m, b.tiers), 1) ?? 1;
 
   const [category, setCategory] = useState<AssetCategory>('block');
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
@@ -67,6 +73,38 @@ export function EditorPalette() {
         >
           Pilih
         </button>
+        {/* Mengunci slot bukan "menaruh aset", jadi ia tombol modus di sebelah
+            Pilih, bukan kartu di palet. */}
+        <button
+          type="button"
+          onClick={() => setTool(tool === 'slots' ? 'select' : 'slots')}
+          className={`rounded-md px-3 py-1 text-[12px] transition-colors ${
+            tool === 'slots'
+              ? 'bg-red-400/20 text-slate-50'
+              : 'text-slate-400 hover:text-slate-100'
+          }`}
+        >
+          Kunci slot
+        </button>
+        {/* Tier yang dibidik: klik di lapangan memilih slot/row pada bidang
+            setinggi tier ini. Tier 1 = kunci seluruh kolom. */}
+        {tool === 'slots' && (
+          <span className="ml-1 flex items-center gap-0.5 text-[10px] text-slate-400">
+            dari tier
+            {Array.from({ length: maxTiers }, (_, i) => i + 1).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setLockTier(t)}
+                className={`min-w-[22px] rounded px-1 py-0.5 text-[11px] tabular-nums ${
+                  lockTier === t ? 'bg-sky-400/25 font-semibold text-slate-50' : 'text-slate-400 hover:text-slate-100'
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </span>
+        )}
         <span className="mx-1 h-4 w-px bg-white/10" />
         {CATEGORIES.map((c) => (
           <button
@@ -87,10 +125,29 @@ export function EditorPalette() {
       {/* Baris bantuan — tanpa ini tidak ada yang memberi tahu bahwa KARTU-nya
           yang diklik, bukan tab-nya, dan bahwa memutar pakai tombol R. */}
       <div className='pointer-events-none text-[10px] text-slate-400'>
-        {category === 'block'
-          ? 'Klik kartu blok untuk membuat blok baru di database.'
-          : 'Klik kartu, lalu klik di lapangan untuk menaruhnya.'}
-        {' · Klik objek untuk memilih, klik lagi dan seret untuk memindah, R memutar 15°.'}
+        {tool === 'slots' ? (
+          <>
+            Pilih tier, lalu klik petak di lapangan: slot/row itu dikunci <b>dari tier {lockTier} sampai
+            teratas</b>. Klik sel merah untuk membukanya lagi. Abu-abu = sudah berisi kontainer.
+            {/* Hasil klik terakhir, tepat di tempat mata sedang melihat. */}
+            {(busy || note) && (
+              <span
+                className={`mt-1 block rounded bg-slate-950/70 px-2 py-0.5 ${
+                  busy ? 'text-slate-300' : /tidak bisa|gagal|ditolak|dimatikan/i.test(note ?? '') ? 'text-amber-300' : 'text-sky-300'
+                }`}
+              >
+                {busy ? 'Menyimpan ke YARD_ROWTIER…' : note}
+              </span>
+            )}
+          </>
+        ) : (
+          <>
+            {category === 'block'
+              ? 'Klik kartu blok untuk membuat blok baru di database.'
+              : 'Klik kartu, lalu klik di lapangan untuk menaruhnya.'}
+            {' · Klik objek untuk memilih, klik lagi dan seret untuk memindah, R memutar 15°.'}
+          </>
+        )}
       </div>
 
       {/* Kartu aset */}

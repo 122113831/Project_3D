@@ -16,6 +16,7 @@ import type {
   TypeFilter,
 } from '@/lib/types';
 import { useYard } from '@/store/useYard';
+import { useTraffic } from '@/store/useTraffic';
 import { useYardView } from '@/store/useYardView';
 import { Chip, Panel, Section, SubLabel, Toggle } from './ui';
 
@@ -60,7 +61,7 @@ export function ControlPanel() {
     filter.types.length > 0;
 
   return (
-    <Panel className="pointer-events-auto w-[248px] overflow-hidden">
+    <Panel className="hud-scroll pointer-events-auto min-h-0 w-[248px] overflow-y-auto overscroll-contain">
       <Section title="Pewarnaan">
         <div className="grid grid-cols-2 gap-1">
           {COLOR_MODES.map((m) => (
@@ -211,6 +212,8 @@ export function ControlPanel() {
         )}
       </Section>
 
+      <TrafficSection />
+
       <Section title="Opsi tampilan">
         <Toggle checked={options.labels} onChange={(v) => setOption('labels', v)}>
           Nomor kontainer (saat dekat)
@@ -233,7 +236,103 @@ export function ControlPanel() {
         <Toggle checked={options.shadows} onChange={(v) => setOption('shadows', v)}>
           Bayangan <span className="text-slate-500">(berat)</span>
         </Toggle>
+        <Toggle checked={options.blockInfo} onChange={(v) => setOption('blockInfo', v)}>
+          Kapasitas blok <span className="text-slate-500">(% terisi · sisa box)</span>
+        </Toggle>
+        <Toggle checked={options.alerts} onChange={(v) => setOption('alerts', v)}>
+          Peringatan <span className="text-slate-500">(bahaya · rusak · lewat batas)</span>
+        </Toggle>
+        <Toggle checked={options.view2d} onChange={(v) => setOption('view2d', v)}>
+          Denah 2D <span className="text-slate-500">(dari atas)</span>
+        </Toggle>
+        <Toggle checked={options.tour} onChange={(v) => setOption('tour', v)}>
+          Mode tur <span className="text-slate-500">(kamera berkeliling)</span>
+        </Toggle>
+        <Toggle checked={options.night} onChange={(v) => setOption('night', v)}>
+          Malam <span className="text-slate-500">(lampu tiang menyala)</span>
+        </Toggle>
       </Section>
     </Panel>
+  );
+}
+
+const SPEEDS = [1, 2, 4, 8];
+
+/**
+ * Kendali lalu lintas truk gate.
+ *
+ * Untuk sementara kejadiannya datang dari pemutar ulang GATE_HIST. Saat
+ * jembatan HiveMQ tersambung, kejadian yang sama masuk lewat pintu yang sama
+ * (useTraffic.ingest) dan bagian ini cukup menampilkan keadaannya.
+ */
+function TrafficSection() {
+  const trips = useTraffic((s) => s.trips);
+  const replaying = useTraffic((s) => s.replaying);
+  const speed = useTraffic((s) => s.speed);
+  const setSpeed = useTraffic((s) => s.setSpeed);
+  const showNetwork = useTraffic((s) => s.showNetwork);
+  const setShowNetwork = useTraffic((s) => s.setShowNetwork);
+  const replay = useTraffic((s) => s.replay);
+  const stop = useTraffic((s) => s.stop);
+  const note = useTraffic((s) => s.note);
+  const diag = useTraffic((s) => s.diag);
+  const skipped = useTraffic((s) => s.skipped);
+
+  const active = Object.keys(trips).length;
+  const skippedList = Object.values(skipped);
+  // Alasan dikelompokkan, supaya sepuluh kontainer yang sudah keluar terbaca
+  // sebagai satu baris, bukan sepuluh.
+  const reasons = new Map<string, number>();
+  for (const r of skippedList) {
+    const key = r.endsWith('tidak ada di lapangan') ? 'kontainer sudah tidak di lapangan' : r;
+    reasons.set(key, (reasons.get(key) ?? 0) + 1);
+  }
+
+  return (
+    <Section title="Lalu lintas gate">
+      <div className="grid grid-cols-2 gap-1">
+        <Chip active={replaying} onClick={() => void replay(20)} title="Putar ulang 20 perjalanan terakhir dari GATE_HIST">
+          Putar ulang
+        </Chip>
+        <Chip active={false} onClick={stop}>
+          Hentikan
+        </Chip>
+      </div>
+      <div className="mt-1.5 grid grid-cols-4 gap-1">
+        {SPEEDS.map((v) => (
+          <Chip key={v} active={speed === v} onClick={() => setSpeed(v)}>
+            {v}×
+          </Chip>
+        ))}
+      </div>
+      <div className="mt-1.5">
+        <Toggle checked={showNetwork} onChange={setShowNetwork}>
+          Jaringan jalan
+        </Toggle>
+      </div>
+
+      <div className="mt-1 space-y-0.5 text-[10px] leading-relaxed text-slate-500">
+        <div>
+          {active} truk di lapangan
+          {diag && ` · ${diag.gatesIn} gate masuk · ${diag.gatesOut} gate keluar`}
+        </div>
+        {note && <div>{note}</div>}
+        {diag && diag.gatesIn === 0 && (
+          <div className="text-amber-400/80">
+            Tata letak belum punya gate — taruh gate di jalan lewat Sunting lapangan.
+          </div>
+        )}
+        {diag && diag.unreachable.length > 0 && diag.gatesIn > 0 && (
+          <div className="text-amber-400/80">
+            Tidak tersambung jalan ke gate: blok {diag.unreachable.join(', ')}
+          </div>
+        )}
+        {[...reasons].map(([r, n]) => (
+          <div key={r} className="text-amber-400/70">
+            {n} dilewati: {r}
+          </div>
+        ))}
+      </div>
+    </Section>
   );
 }

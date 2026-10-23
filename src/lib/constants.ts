@@ -297,6 +297,15 @@ export function roadTileParts(kind: RoadKind, line: number = ROAD.line) {
   return { outer, inner, junction, line };
 }
 
+/**
+ * Batas umur kontainer di lapangan sebelum dianggap lewat batas, hari.
+ *
+ * Dipakai penanda peringatan di lapangan DAN kueri KPI di server, dari satu
+ * angka — kalau keduanya punya angkanya sendiri, panel akan menghitung jumlah
+ * yang berbeda dari yang ditandai di lapangan.
+ */
+export const DWELL_ALERT_DAYS = 30;
+
 export const RTG_CLEARANCE = 3.8;
 
 /** Skala sumbu Z geometri RTG supaya portalnya menaungi blok selebar `width`. */

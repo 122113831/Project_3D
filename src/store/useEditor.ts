@@ -19,6 +19,10 @@ import {
   type LayoutRoad,
   type YardLayout,
 } from '@/lib/layout';
+import { planGrowth, type ShiftPlan } from '@/lib/shift';
+import { pushRoadClear } from '@/lib/validate';
+import { normalizeBlocked, toggleBlocked } from '@/lib/slots';
+import { slotAction } from '@/lib/yardApi';
 import type { YardData, YardSource } from '@/lib/types';
 import { useYard } from './useYard';
 
@@ -27,7 +31,11 @@ import { useYard } from './useYard';
  * di palet. Jenis apa yang ditaruh ditentukan kartunya, bukan tool terpisah —
  * itu yang membuat palet bergambar jadi satu-satunya tempat memilih.
  */
-export type EditorTool = 'select' | 'place';
+/**
+ * 'slots' = mengunci/membuka slot: kontainer disembunyikan, tiap sel blok
+ * digambar sebagai kisi, dan klik pada sel mengunci kolomnya dari situ ke atas.
+ */
+export type EditorTool = 'select' | 'place' | 'slots';
 
 export type Selection =
   | { type: 'block'; id: string }
@@ -130,6 +138,24 @@ type EditorState = {
   /** Geser objek terpilih tanpa mencatat riwayat — dipakai saat drag. */
   moveSelected: (x: number, z: number, record?: boolean) => void;
   removeSelected: () => void;
+  /** Klik pada sel (bay, row, tier) di modus 'slots' — lihat toggleBlocked. */
+  toggleSlot: (blockId: string, bay: number, row: number, tier: number) => void;
+  /** Membuka semua kunci di satu blok. */
+  clearBlocked: (blockId: string) => void;
+  /**
+   * Tier yang sedang dibidik di modus 'slots'. Klik menentukan slot dan row
+   * lewat bidang datar setinggi tier ini, jadi sel di tengah blok — yang dari
+   * arah mana pun terhalang sel di depannya — tetap bisa dipilih.
+   */
+  lockTier: number;
+  setLockTier: (t: number) => void;
+  /**
+   * Menggeser jalan, alat, dan blok lain yang tertimpa karena blok ini
+   * membesar dari ukuran dasarnya (lihat shift.ts). Mengembalikan id blok
+   * lain yang ikut bergeser — posisinya perlu disimpan ke database oleh
+   * pemanggil.
+   */
+  shiftForGrowth: (blockId: string, base: { slots: number; rows: number }) => ShiftPlan[];
   undo: () => void;
   clearLayout: () => void;
   importLayout: (json: string) => string | null;
@@ -151,6 +177,92 @@ type EditorState = {
   /** Menyisipkan blok dari database ke tata letak, apa adanya. */
   adoptBlock: (b: LayoutBlock) => void;
 };
+
+/**
+ * Lapangan database: kunci slot = baris YARD_ROWTIER yang dihapus, buka
+ * kunci = baris yang disisipkan kembali (lihat lockSlot di depotWrite.ts).
+ * Menu stack/unstack TOS memilih tempat dari tabel itu, jadi slot yang
+ * barisnya hilang memang tidak bisa ditumpuki.
+ *
+ * Lapangan setempat baru diperbarui SETELAH server menjawab. Kalau server
+ * menolak — misalnya tier itu masih berisi kontainer — tampilan tidak
+ * berpura-pura sudah terkunci.
+ */
+async function toggleSlotInDb(blockId: string, bay: number, row: number, tier: number) {
+  const ed = useEditor.getState();
+  if (ed.busy) return;
+  const block = useYard.getState().data?.blocks.find((b) => b.id === blockId);
+  if (!block) return;
+  const cells = normalizeBlocked(block.blocked, block);
+  const base = cells.find((c) => c.bay === bay && c.row === row) ?? null;
+  // Bentuk di tabel: YARD_SLOT ganjil (1, 3, 5, …), row 1-based.
+  const slot = bay * 2 + 1;
+  // Kolom yang sudah terkunci: klik di tier MANA PUN membukanya — termasuk di
+  // bawah dasar kuncinya, karena dari bidang tier 1 itulah kolom merah paling
+  // sering diklik. Dulu klik di bawah dasar dianggap "kunci ulang", dan
+  // tampilan lokal justru menandainya terbuka padahal barisnya tetap hilang.
+  const unlock = base !== null;
+
+  // Klik pada sel yang masih berisi — atau di bawahnya — tidak ditolak mentah:
+  // kuncinya dinaikkan ke tepat di atas kontainer teratas kolom itu, karena
+  // itulah yang paling mungkin dimaksud. Kontainer 40ft di slot sebelah kiri
+  // ikut menempati kolom ini.
+  const top = block.containers.reduce(
+    (t, c) => (c.row === row && (c.bay === bay || (c.size === 40 && c.bay === bay - 1)) ? Math.max(t, c.tier) : t),
+    0,
+  );
+  let lockTier = tier;
+  let raised = false;
+  if (!unlock && tier <= top) {
+    lockTier = top + 1;
+    raised = true;
+    if (lockTier > block.tiers) {
+      ed.setNote(`Slot ${blockId}-${slot} row ${row + 1} terisi sampai tier teratas — tidak ada yang bisa dikunci.`);
+      return;
+    }
+  }
+  ed.setBusy(true);
+  try {
+    if (unlock) {
+      const r = await slotAction({ action: 'unlock', block: blockId, slot, row: row + 1 });
+      ed.setNote(
+        `Slot ${blockId}-${slot} row ${row + 1} dibuka: ${r.inserted ?? 0} baris YARD_ROWTIER disisipkan.`,
+      );
+    } else {
+      const r = await slotAction({ action: 'lock', block: blockId, slot, row: row + 1, tier: lockTier });
+      ed.setNote(
+        `Slot ${blockId}-${slot} row ${row + 1} dikunci dari tier ${lockTier}` +
+          `${raised ? ` (tier ${tier}–${top} masih berisi)` : ''}: ${r.deleted ?? 0} baris YARD_ROWTIER dihapus.`,
+      );
+    }
+    // Keadaan lokal ditulis EKSPLISIT dari apa yang baru saja dilakukan server,
+    // bukan lewat toggle yang bisa menafsirkan klik secara berbeda.
+    const rest = cells.filter((c) => c !== base);
+    useYard.getState().setBlocked(
+      blockId,
+      unlock ? rest : normalizeBlocked([...rest, { bay, row, tier: lockTier }], block),
+    );
+  } catch (e) {
+    ed.setNote(e instanceof Error ? e.message : String(e));
+  } finally {
+    ed.setBusy(false);
+  }
+}
+
+async function clearBlockedInDb(blockId: string) {
+  const ed = useEditor.getState();
+  if (ed.busy) return;
+  ed.setBusy(true);
+  try {
+    const r = await slotAction({ action: 'unlockBlock', block: blockId });
+    useYard.getState().setBlocked(blockId, []);
+    ed.setNote(`Blok ${blockId} dibuka seluruhnya: ${r.inserted ?? 0} baris YARD_ROWTIER disisipkan.`);
+  } catch (e) {
+    ed.setNote(e instanceof Error ? e.message : String(e));
+  } finally {
+    ed.setBusy(false);
+  }
+}
 
 const commit = (
   set: (fn: (s: EditorState) => Partial<EditorState>) => void,
@@ -182,7 +294,15 @@ export const useEditor = create<EditorState>((set, get) => ({
   revision: 0,
   past: [],
 
-  setOpen: (open) => set({ open, selected: open ? get().selected : null }),
+  lockTier: 1,
+  setLockTier: (lockTier) => set({ lockTier: Math.max(1, Math.round(lockTier)) }),
+
+  setOpen: (open) => {
+    // Kontainer yang sedang diinspeksi dilepas saat editor dibuka: popupnya
+    // tidak boleh tertinggal di atas lapangan yang kontainernya disembunyikan.
+    if (open) useYard.getState().select(null);
+    set({ open, selected: open ? get().selected : null });
+  },
   setTool: (tool) => set({ tool, selected: tool === 'select' ? get().selected : null }),
   setAsset: (assetId) => set({ assetId, tool: 'place', selected: null }),
 
@@ -289,6 +409,20 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (road.kind === 'straight' && fit.len < ROAD.tile - 0.01) {
       road.len = Math.round(fit.len * 100) / 100;
     }
+    // Ubin yang aspalnya menimpa blok didorong keluar ke sisi terdekat, bukan
+    // ditaruh lalu dilaporkan panel pemeriksaan. Kalau tidak ada dorongan
+    // sampai satu ubin yang menolong, ubinnya memang di tengah blok: ditolak.
+    const blocks = get().layout!.blocks;
+    const clear = pushRoadClear(road, blocks);
+    if (!clear) {
+      get().setNote('Ubin tidak ditaruh: titik itu di tengah blok. Taruh di ujung atau sisi lorong blok.');
+      return;
+    }
+    if (clear.x !== road.x || clear.z !== road.z) {
+      road.x = clear.x;
+      road.z = clear.z;
+      get().setNote('Ubin digeser keluar dari blok ke sisi terdekat.');
+    }
     commit(set, (cur) => ({ ...cur, roads: [...cur.roads, road] }));
     set({ selected: { type: 'road', id: road.id } });
   },
@@ -384,6 +518,43 @@ export const useEditor = create<EditorState>((set, get) => ({
     set({ selected: null });
   },
 
+  toggleSlot: (blockId, bay, row, tier) => {
+    if (useYard.getState().data?.meta.source === 'depot') {
+      void toggleSlotInDb(blockId, bay, row, tier);
+      return;
+    }
+    // Lapangan demo tidak punya tabel: kuncinya tinggal di tata letak.
+    commit(set, (l) => {
+      const b = l.blocks.find((v) => v.id === blockId);
+      if (!b) return l;
+      return {
+        ...l,
+        blocked: { ...(l.blocked ?? {}), [blockId]: toggleBlocked(l.blocked?.[blockId], b, bay, row, tier) },
+      };
+    });
+  },
+
+  clearBlocked: (blockId) => {
+    if (useYard.getState().data?.meta.source === 'depot') {
+      void clearBlockedInDb(blockId);
+      return;
+    }
+    commit(set, (l) => {
+      const blocked = { ...(l.blocked ?? {}) };
+      delete blocked[blockId];
+      return { ...l, blocked };
+    });
+  },
+
+  shiftForGrowth: (blockId, base) => {
+    const l = get().layout;
+    if (!l) return [];
+    const { plans, layout } = planGrowth(l, blockId, base);
+    if (plans.length === 0) return [];
+    commit(set, () => layout);
+    return plans;
+  },
+
   undo: () =>
     set((s) => {
       const prev = s.past.at(-1);
@@ -428,6 +599,7 @@ export const useEditor = create<EditorState>((set, get) => ({
         ...parsed,
         equipment: parsed.equipment ?? [],
         roads: parsed.roads ?? [],
+        blocked: parsed.blocked ?? {},
       };
       saveLayout(get().source, layout);
       set((s) => ({

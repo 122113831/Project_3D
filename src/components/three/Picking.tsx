@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { YardContainer } from '@/lib/types';
+import { useEditor } from '@/store/useEditor';
 import { useYard } from '@/store/useYard';
 import { pickables } from './pickRegistry';
 
@@ -38,6 +39,10 @@ export function Picking() {
       // Abaikan kalau ini gerakan orbit/pan, bukan klik.
       if (Math.hypot(e.clientX - downX, e.clientY - downY) > 5) return;
       if (performance.now() - downT > 700) return;
+      // Di editor kontainer disembunyikan, tapi mesh-nya masih ada untuk
+      // raycast. Tanpa ini klik pada kisi slot membuka layar inspeksi
+      // kontainer yang tidak terlihat.
+      if (useEditor.getState().open) return;
 
       const rect = el.getBoundingClientRect();
       ndc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;

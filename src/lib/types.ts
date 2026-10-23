@@ -96,6 +96,16 @@ export type YardContainer = {
  */
 export type BlockSide = 'L' | 'R';
 
+/**
+ * Dasar sebuah kolom slot yang DIKUNCI: sel (bay, row, tier) ini dan semua
+ * tier di atasnya tidak boleh ditumpuki.
+ *
+ * Hanya dasarnya yang disimpan. Tumpukan tidak bisa melompati lubang, jadi
+ * "terkunci dari tier 3 ke atas" sudah lengkap dengan satu angka; tier 4 dan 5
+ * tidak perlu dicatat sendiri-sendiri.
+ */
+export type BlockedCell = { bay: number; row: number; tier: number };
+
 export type YardBlock = {
   id: string;
   /** Sudut blok (slot 0, row 0) dalam koordinat dunia, satuan meter */
@@ -124,6 +134,8 @@ export type YardBlock = {
   /** CORE_YARD_BLOCK.SLOT_START — ujung tempat penomoran slot dimulai. */
   slotStart: BlockSide;
   containers: YardContainer[];
+  /** Kolom slot yang dikunci editor; dari YARD_LAYOUT, bukan dari database TOS. */
+  blocked?: BlockedCell[];
 };
 
 /** Shipping line yang benar-benar ada di data, bukan daftar tetap. */
