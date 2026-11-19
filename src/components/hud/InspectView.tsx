@@ -17,6 +17,12 @@ import {
   tankModelPlainFor,
   type ModelPart,
 } from '@/lib/containerModel';
+import { realisticContainerModel } from '@/lib/realisticContainer';
+import { isoFor } from '@/lib/containerCode';
+import { useCodedGeometry } from '@/components/three/useCodedGeometry';
+import { realisticReeferModel } from '@/lib/realisticReefer';
+import { realisticTankModel } from '@/lib/realisticTank';
+import { useLivery } from '@/store/useLivery';
 import { colorFor, colorForLine, ctrTypeLabel, STATUS_COLOR, STATUS_LABEL } from '@/lib/palette';
 import type { YardContainer } from '@/lib/types';
 import { useYard } from '@/store/useYard';
@@ -52,6 +58,28 @@ const tanggal = (iso: string) => {
 
 // --- separuh kanan: kontainer fisik ------------------------------------------
 
+/**
+ * Satu bagian model di jendela detail, dengan nomor kontainer bila
+ * materialnya kontainer realistis.
+ *
+ * dispose={null}: geometri dipakai bersama lapangan (salinan berkode berbagi
+ * buffer posisi/normal). Pembuangan otomatis R3F saat jendela ini ditutup dulu
+ * menghapus buffer itu dan membuat kontainer di lapangan HITAM. Material
+ * salinan dibuang Model; salinan geometri oleh useCodedGeometry.
+ */
+function ModelPartMesh({
+  part,
+  material,
+  code,
+}: {
+  part: ModelPart;
+  material: THREE.Material;
+  code: { no: string; iso: string }[];
+}) {
+  const geometry = useCodedGeometry(part.geometry, part.material.userData.containerCode ? code : null);
+  return <mesh geometry={geometry} material={material} dispose={null} />;
+}
+
 function Model({ c }: { c: YardContainer }) {
   const [container, reefer, tank] = useGLTF(
     [CONTAINER_MODEL_URL, REEFER_MODEL_URL, TANK_MODEL_URL],
@@ -60,31 +88,50 @@ function Model({ c }: { c: YardContainer }) {
   );
   const colorMode = useYard((s) => s.colorMode);
   const plain = colorMode === 'none';
+  const style = useYard((s) => s.options.containerStyle);
+  // Livery kontainer ini dari master (prefix → merek), sama dengan lapangan.
+  const resolve = useLivery((s) => s.resolve);
+  const found = style === 'real' ? resolve(c) : null;
+  // Tank hanya memakai livery bermodel TANK; selain itu aset tank lama.
+  const livery = kindOf(c) === 'tank' ? (found?.model === 'TANK' ? found : null) : found;
 
   const parts: ModelPart[] = useMemo(() => {
     const kind = kindOf(c);
     const model =
       kind === 'tank'
-        ? (plain ? tankModelPlainFor : tankModelFor)(tank)
+        ? livery
+          ? realisticTankModel(plain ? 'plain' : 'tint', livery, 'inspect')
+          : (plain ? tankModelPlainFor : tankModelFor)(tank)
         : kind === 'reefer'
-          ? (plain ? reeferModelPlainFor : reeferModelFor)(reefer)
-          : (plain ? containerModelPlainFor : containerModelFor)(container);
+          ? style === 'real'
+            ? realisticReeferModel(plain ? 'plain' : 'tint', livery ?? undefined, 'inspect')
+            : (plain ? reeferModelPlainFor : reeferModelFor)(reefer)
+          : style === 'real'
+            ? realisticContainerModel(plain ? 'plain' : 'tint', livery ?? undefined, 'inspect')
+            : (plain ? containerModelPlainFor : containerModelFor)(container);
     return (c.size === 40 && model.parts40) || model.parts20;
-  }, [c, plain, container, reefer, tank]);
+  }, [c, plain, style, livery, container, reefer, tank]);
 
   // Material lapangan dipakai bersama puluhan InstancedMesh dan mendapat
   // ronanya dari instanceColor. Mesh biasa tidak punya itu, jadi materialnya
   // disalin dan warnanya DIKALIKAN rona yang sama — hasil akhirnya identik
   // dengan rumus renderer: warna material × warna instance × peta.
   const materials = useMemo(() => {
-    const hue = new THREE.Color(colorFor(c, colorMode));
+    const hue = new THREE.Color(colorFor(c, colorMode, style, livery?.bodyColor));
     return parts.map((p) => {
       const m = (p.material as THREE.MeshPhongMaterial).clone();
+      // clone() tidak membawa onBeforeCompile — tanpa ini marka kontainer
+      // realistis hilang di jendela detail.
+      m.onBeforeCompile = p.material.onBeforeCompile;
+      m.customProgramCacheKey = p.material.customProgramCacheKey;
       if (!plain) m.color.multiply(hue);
       return m;
     });
-  }, [parts, c, colorMode, plain]);
+  }, [parts, c, colorMode, plain, style, livery?.bodyColor]);
   useEffect(() => () => materials.forEach((m) => m.dispose()), [materials]);
+
+  // Nomor asli kontainer ini di badan model realistis.
+  const code = useMemo(() => [{ no: c.no, iso: isoFor(c) }], [c]);
 
   // Masuk dengan sedikit "mendarat": naik dari bawah sambil membesar, lalu
   // menetap. Dihitung per frame dari waktu mulai, bukan dengan pustaka tween.
@@ -106,7 +153,7 @@ function Model({ c }: { c: YardContainer }) {
   return (
     <group ref={group} position={[0, BOX.height / 2, 0]}>
       {parts.map((p, i) => (
-        <mesh key={p.name} geometry={p.geometry} material={materials[i]} />
+        <ModelPartMesh key={p.name} part={p} material={materials[i]} code={code} />
       ))}
     </group>
   );

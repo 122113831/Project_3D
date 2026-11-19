@@ -410,6 +410,282 @@ menempel jalan, belum ada gate masuk/keluar, dan blok yang tidak tersambung
 jalan ke gate. Klik satu baris untuk menerbangkan kamera ke lokasinya. Aturannya
 di [validate.ts](src/lib/validate.ts), diuji di `tests/validate.test.ts`.
 
+### Jalan berdiri sendiri
+
+Blok yang dibuat sekarang **tidak lagi membawa jalan**: yang ikut hanya lajur
+layanan dan rel RTG (8,2 m pertama dari tepi blok). Jalan dua arah adalah ubin
+terpisah yang ditaruh atau disambung sendiri — ubin yang ditaruh di samping
+blok seperti itu otomatis menjepret ke garis lorongnya. Truk bisa berhenti di
+bay yang dilalui ubin jalan; bagian lorong tanpa ubin tidak terjangkau, dan
+panel Pemeriksaan melaporkannya.
+
+Blok lama tetap membawa jalannya supaya tata letak yang ada tidak berubah. Di
+properti blok, **Ganti dengan ubin jalan** melepasnya: jalannya diganti ubin
+lurus di garis yang sama, potongan terakhir dipendekkan, sehingga sambungan
+yang sudah ada tetap utuh (`ownRoad` di tata letak, lihat
+[roadGraph.ts](src/lib/roadGraph.ts) dan `tests/standaloneRoad.test.ts`).
+
+### Sambung jalan otomatis
+
+Tombol **Sambung jalan** di palet editor: klik titik awal, lalu titik akhir
+(aspal kosong atau jalan yang sudah ada). Jalurnya dicari dengan A* di kisi
+ubin 24 m — belok diberi biaya supaya lurus dan rapi, petak yang aspalnya akan
+menimpa blok dilewati, dan jalan lama murah dilalui sehingga jalan baru lebih
+suka bergabung daripada sejajar. Bentuk tiap ubin diturunkan dari tetangganya
+(lurus, belokan, pertigaan, perempatan); ubin lama yang dilalui ditingkatkan,
+tidak ditimpa. Satu kali sambung = satu langkah Batalkan
+([connect.ts](src/lib/connect.ts), `tests/connect.test.ts`).
+
+## Kontainer realistis (Maersk)
+
+Saat kamera dekat, kontainer GP memakai duplikat realistis berlivery Maersk
+yang dibangun di browser ([realisticContainer.ts](src/lib/realisticContainer.ts)).
+Aset GLB lama tidak diubah dan tetap bisa dipilih.
+
+- **Halus**: tikungan gelombang dinding dibulatkan dan normalnya halus, panel
+  diberi penyok tipis, dan rangkanya dari balok bersudut tumpul.
+- **Pintu**: panel tekan horizontal, karet hitam keliling, 4 batang kunci
+  dengan cam keeper, gagang, kotak segel, dan engsel blade.
+- **Livery**: badan abu-abu, logo bintang dalam kotak teal, dan MAERSK hitam.
+  Ada juga kode MSKU dengan check digit ISO 6346, tabel berat, stiker bahaya,
+  dan plat CSC.
+- **Ukuran**: dua tingkat detail (`Quality`). Di lapangan (InstancedMesh)
+  sekitar 3.400 segitiga untuk 20ft dan 3.800 untuk 40ft, berindeks; di jendela
+  detail 5.300 dengan tikungan gelombang dibulatkan, penyok halus, dan normal
+  map kulit jeruk. Tanpa unduhan berkas.
+- **Marka dicampur ke cat** di shader, bukan lapisan kedua, jadi tidak ada garis
+  putih atau takik di lipatan gelombang. Logo dan tulisan diperkecil otomatis
+  supaya selalu muat, termasuk di kontainer 20ft.
+
+### Kinerja di GPU terintegrasi
+
+Diukur di Intel Iris Plus, 743 kontainer detail, kamera berputar 40 m dari
+blok: semula 82–90 ms per frame (10–12 fps), kini ±25 ms — setara aset GLB
+lama (±23 ms). Yang terbukti dari pengukuran (resolusi seperempat tidak
+mengubah waktu frame, jadi biayanya per segitiga, bukan per piksel):
+
+- Geometri dilas menjadi berindeks (`mergeVertices`), balok rangka 108 → 44
+  segitiga, dan tingkat `yard` tanpa pembulatan gelombang/penyok/normal map.
+  Jumlah segitiga per frame turun 5,2 juta → 2,4 juta.
+- Loop nomor kontainer di shader hanya dijalankan di dalam dua kotak pembatas
+  zona nomor; zonanya dibakar sebagai konstanta GLSL (satu program per atlas).
+- Anisotropi tekstur 4 (bukan 8/16), normal map (1 sampel) menggantikan bump
+  map (3 sampel) di jendela detail.
+
+Saat pewarnaan nyala, cat badan mengikuti line/status dan marka tetap
+terbaca. Matikan **Kontainer realistis** di Opsi tampilan untuk kembali ke
+aset lama.
+
+### Nomor kontainer asli di badan
+
+Kontainer GP dan reefer realistis menampilkan nomor aslinya dari data. Nomor
+ditulis di dinding samping, di pintu, dan di muka mesin reefer, misalnya
+KKLU 239097 [8], beserta kode ISO-nya.
+
+- **Per instance**: nomor dan kode ISO dikodekan ke dua atribut instance.
+  Shader cat menggambar hurufnya dari satu atlas huruf, jadi ribuan nomor
+  berbeda tetap satu draw call ([containerCode.ts](src/lib/containerCode.ts)).
+- **Kode ISO**: diambil dari isoCode data bila valid. Kalau tidak, ditebak
+  dari ukuran dan status reefer, misalnya 22G1, 42G1, 22R1, atau 45R1.
+- **Nomor kotor dirapikan**: huruf kecil dijadikan kapital, spasi dan tanda
+  baca dibuang, dan nomor yang terlalu pendek diberi spasi.
+
+### Master livery per pemilik kontainer (SOP)
+
+Skrip: [scripts/sql/yard_livery.sql](scripts/sql/yard_livery.sql). Skrip ini
+membuat `YARD_LIVERY` (tampilan) dan `YARD_LIVERY_MAP` (aturan pencocokan),
+plus data awal untuk aset yang sudah ada.
+
+Aplikasi membaca master lewat `/api/yard/livery` saat halaman dimuat. Kalau
+tabel tidak terbaca, misalnya di sumber demo, aplikasi memakai set bawaan
+yang isinya sama dengan data awal ([livery.ts](src/lib/livery.ts)).
+
+- **Lapangan**: kontainer realistis dikelompokkan per livery. Tiap livery
+  punya cat badan, teks merek, warna tulisan, dan logo sendiri, dan nomor
+  kontainer ditulis dengan warna tulisan livery itu.
+- **Logo berkas** dari `public/liveries/` digambar setelah termuat. Formatnya
+  PNG, WebP, atau SVG yang punya width/height. Pinggiran transparan dipangkas
+  otomatis.
+- **Logo yang sudah memuat tulisan merek** (Maersk, Meratus, ONE): kosongkan
+  `BRAND_TEXT`, supaya logo mendapat ruang selebar dinding dan tulisannya
+  tidak dobel.
+- **Papan latar otomatis**: bila kontras logo dan cat badan di bawah 2,
+  misalnya ONE magenta di badan magenta, logo diberi papan putih atau gelap.
+- **Latar logo dihapus otomatis** untuk berkas tanpa transparansi, misalnya
+  JPG atau PNG berlatar putih. Isian putih di dalam logo tetap utuh.
+- **Daftar merek bawaan** ada di [livery-seed.json](src/lib/livery-seed.json):
+  merek, warna badan, warna tulisan, berkas logo, skala, dan prefix. Berkas
+  ini dibaca dua tempat. `node scripts/seed-livery-logos.mjs` mengisi master
+  Oracle dari sini, dan aman dijalankan ulang. Set cadangan di aplikasi juga
+  dibangun dari sini, jadi keduanya tidak bisa berbeda.
+- **Isi saat ini**: Maersk, Meratus, MSC, ONE, CMA CGM, COSCO, Evergreen,
+  Hapag-Lloyd, HMM, Wan Hai, KMTC, OOCL, PIL, RCL, Yang Ming, SPIL, Tanto,
+  Temas, dan Samudera. Temas dan Samudera belum punya prefix.
+- **Pewarnaan mati**: kontainer di kejauhan memakai warna badan livery-nya,
+  jadi warnanya tidak berganti saat kamera mendekat.
+- **Perubahan master** terbaca setelah halaman dimuat ulang.
+
+Kunci pencocokan adalah prefix nomor kontainer, yaitu kode pemilik ISO 6346.
+Agen hanya cadangan, karena agen bukan pemilik kontainer. Urutan pencarian:
+prefix dan jenis, prefix ANY, agen dan jenis, agen ANY, lalu DEFAULT.
+
+**Pemasangan, sekali per lingkungan:**
+
+1. DBA menjalankan skrip di **dev** dulu, lalu cek kedua tabel dan data awal.
+2. Setelah disetujui, jalankan di **produksi** dengan skema yang sama.
+
+**Menambah merek baru:**
+
+1. Jalankan query 4b di skrip untuk melihat prefix yang belum punya aturan,
+   urut dari yang paling banyak.
+2. Status **NOMOR SALAH** artinya nomor kontainernya salah input. Perbaiki di
+   data depot dan jangan didaftarkan di master.
+3. Pastikan pemilik prefix dari registri BIC (bic-code.org), bukan dari kode
+   agen.
+4. Siapkan logo resmi: PNG latar transparan, sisi panjang ±1024 px. Simpan di
+   `public/liveries/` dengan nama huruf kecil, misalnya `one.png`.
+5. Isi `YARD_LIVERY`: kode, merek, model, warna badan, warna tulisan, teks
+   merek, berkas logo, dan nama admin di `CRT_BY`.
+6. Isi `YARD_LIVERY_MAP` dengan satu baris per prefix. Pakai jenis `ANY`
+   kecuali reefer merek itu berbeda tampilan. Prioritas 10.
+7. `COMMIT`, muat ulang aplikasi, lalu cek satu kontainer berprefix itu dari
+   dekat.
+
+**Perubahan dan penghapusan:**
+
+- **Ubah warna atau logo** dengan `UPDATE` baris `YARD_LIVERY`, sambil
+  mengisi `UPD_TS`/`UPD_BY`.
+- **Jangan `DELETE`.** Isi `ACTIVE_FLAG = 'N'` (query 4d), supaya riwayat
+  siapa mengubah apa tetap ada.
+- **Prefix pindah pemilik** (merger, misalnya Hamburg Süd ke Maersk):
+  nonaktifkan aturan lama, lalu tambah aturan baru.
+- **Cadangan DEFAULT** wajib ada untuk GP dan REEFER. Jangan pernah
+  menonaktifkan keduanya.
+
+**Peran:** admin depot mengisi master. DBA menjalankan skrip dan memegang hak
+tulis tabel. Developer menambah model 3D baru bila `MODEL_CODE` baru
+dibutuhkan.
+
+### Reefer realistis
+
+Reefer ikut sakelar **Kontainer realistis**
+([realisticReefer.ts](src/lib/realisticReefer.ts)). Aset reefer GLB lama
+tidak diubah.
+
+- **Badan**: putih berpanel rata dengan alur sambungan vertikal, dan logo
+  burung di dinding samping.
+- **Pintu**: rata, dengan gagang rendah, kode NARU, kode 22R1/42R1, dan tabel
+  berat. Pintu dan rangka memakai kode yang sama dengan GP.
+- **Muka mesin**: flens berbaut, rangka V terbalik, dan pelat akses berlogo.
+  Ceruknya berisi kipas kondensor bergril, kontroler berlayar, kompresor,
+  kotak listrik, serta pipa dan kabel.
+- **Ukuran**: sekitar 5.100 segitiga untuk 20ft dan 5.300 untuk 40ft.
+
+Saat pewarnaan mati, reefer berwarna putih, termasuk di level jauh.
+
+### ISO tank realistis (Seaco)
+
+Duplikat BARU di samping aset `tank_container.glb`, yang tidak diubah. Model
+ini dipakai tank yang di master mendapat livery bermodel `TANK`. Tank lain
+tetap memakai aset GLB lama.
+
+- **Bentuk** (`src/lib/realisticTank.ts`): rangka balok navy dengan diagonal
+  di kedua ujung dan cincin sadel, tabung putih berkepala cembung, pita
+  insulasi, walkway, manlid, tangga, kotak dokumen, katup bawah, dan pipa uap
+  di samping.
+- **Marka**:
+  - samping: seaco merah, www.seacoglobal.com, nomor dan kode ISO asli tiap
+    tank, stiker CAUTION, blok teks panduan, rambu dilarang forklift
+  - ujung +X: NT tank, nomor dan kode ISO, tabel MGW/TARE, segitiga bahaya
+    listrik
+- **Ukuran**: sekitar 4.100 segitiga di lapangan dan 7.200 di jendela detail.
+  Aset GLB lama berisi 78.600.
+- **Master**: livery `SEACO_TANK` (`model_code = 'TANK'`). Aturan prefix
+  SEGU, SCZU, dan GESU memakai `ctr_kind = 'TANK'`. Prefix yang sama dengan
+  jenis `GP` tetap mengarah ke `SEACO_GP`. Di `livery-seed.json`, isian
+  `model` dan `kind` boleh dikosongkan; nilai bawaannya GP.
+
+### RTG detail (kuning)
+
+RTG prosedural BARU (`src/lib/rtgDetail.ts`) di samping RTG prosedural biru
+dan aset GLB, yang tidak diubah. Tersedia di **Sunting lapangan → Alat → "RTG
+detail (kuning)"**, dengan jenis alat `rtgDetail`.
+
+- **Bentuk** mengikuti gambar acuan:
+  - portal kuning dengan 4 kaki meruncing, balok sill, dan kepala portal
+  - dua girder dengan walkway, railing, dan lampu sorot
+  - knee brace dan pipa pengikat
+  - tangga zig-zag dengan bordes, plus tangga kandang di kaki depan
+  - 8 roda karet dalam 4 bogie dengan bumper bergaris kuning-hitam, dan genset
+    abu-abu di kedua sisi
+  - trolley dengan drum hoist bergalur, motor, dan gearbox
+  - kabin operator berkaca, 8 tali, dan spreader 20ft dengan twistlock,
+    flipper, dan sangkar
+  - tanpa kontainer
+- **Bentang** dibangun ULANG per lebar blok (rel di ±(lebar/2 + 3,8 m)), bukan
+  diregangkan. Sekitar 11.100 segitiga.
+- **Bekerja** seperti RTG lain di `RtgWorks`: portal berjalan, trolley dan
+  kabin bergeser, spreader naik-turun, dan kabel ikut memanjang. Saat diam,
+  spreader menggantung pada tinggi jelajah, jadi tidak melompat saat mulai.
+
+### RTG detail 2 (festoon)
+
+RTG kuning terang kedua (`src/lib/rtgDetail2.ts`), mengikuti gambar acuan
+kedua. RTG detail pertama tidak diubah. Tersedia di **Sunting lapangan → Alat
+→ "RTG detail 2 (festoon)"**, dengan jenis alat `rtgDetail2`.
+
+- **Bagian bawah**: 4 roda sebaris per sisi, masing-masing dengan garpu U
+  terbalik, drum pivot, dan rangka pelindung bergaris. Ada silinder kemudi abu
+  dan balok sill boks besar.
+- **Rumah mesin**: rumah putih di platform grating berbraket balok-I di kedua
+  sisi. Satu sisi punya silencer dan pipa knalpot yang naik di kaki.
+- **Tangga**: tangga zig-zag 4 tingkat dengan bordes, plus tangga kandang dari
+  tanah.
+- **Girder**: walkway grating, lampu sorot menyala di bawahnya, dan rel
+  festoon di tiang Π dengan 5 penjepit merah dan kabel menjuntai.
+- **Trolley dan kabin**: dek abu berrailing, rumah drum, dudukan puli kuning,
+  dan lemari listrik. Kabin berkaca miring tergantung di rangka navy.
+- **Spreader**: badan kuning dengan 4 dudukan puli, kepala kerucut, blok navy,
+  lengan teleskopik navy, dan kaki flipper.
+- **Ukuran dan animasi**: sekitar 21.900 segitiga. Tinggi dan pembagian
+  frame/trolley/spreader sama dengan RTG detail pertama, jadi animasi
+  `RtgWorks` berlaku apa adanya.
+
+## Animasi
+
+- **RTG**: portal berjalan di rel ke bay, trolley dan empat kabel hoist
+  mengikuti spreader, lampu suar berkedip selama portal berjalan, twistlock
+  merah saat terbuka dan hijau saat mengunci. Setelah selesai RTG tetap di bay
+  terakhirnya, tidak kembali ke tempat asal.
+- **Relokasi** (`SHIFT`): RTG memindah kontainer antarslot di blok yang sama,
+  portal ikut berjalan kalau bay-nya berbeda. Datang lewat HiveMQ / POST
+  `/api/yard/events` dengan `{"event":"shift","ctrNo":…,"block":…,"slot":…,"row":…,"tier":…}`,
+  atau tombol **Contoh relokasi**.
+- **Gate**: palang terangkat saat truk mendekat, truk berhenti ±2,5 detik di
+  plat timbangan saat masuk dan keluar, dan mengantre di belakang truk lain.
+- **Truk**: tikungan dibulatkan menjadi busur, kecepatan turun menjelang
+  tikungan dengan percepatan/pengereman, lampu sein berkedip sebelum belok,
+  lampu rem saat melambat.
+- **Langit**: **Ikuti jam** — matahari terbit di timur pukul 06.00, senja
+  jingga, malam dengan lampu tiang menyala ([sky.ts](src/lib/sky.ts)).
+  **Cuaca**: langsung dari Open-Meteo (hanya koordinat `DEPOT_LAT`/`DEPOT_LON`
+  yang dikirim, disinggahkan 10 menit), atau hujan/kabut paksa untuk demo.
+- **Kamera**: terbang melengkung di atas lapangan, durasi menyesuaikan jarak;
+  **Ikuti RTG** mengikuti RTG yang bekerja dan mendekat sampai ±70 m.
+
+## Putar ulang hari dan layar monitor
+
+- **Putar ulang hari** (panel Lalu lintas gate): pilih tanggal — daftar hanya
+  berisi hari yang punya gate in — dan kecepatan (60× = satu jam jadi satu
+  menit). Kejadian diputar sesuai urutan jam aslinya; jeda kosong lebih dari 20
+  menit dipadatkan. Jam rekaman di bawahnya menunjukkan jam ASLI kejadian
+  ([dayReplay.ts](src/lib/dayReplay.ts), `GET /api/yard/trips?day=YYYY-MM-DD`).
+- **Layar monitor (kiosk)**: untuk TV ruang kontrol. Panel kendali hilang,
+  tampil jam besar, KPI, dan okupansi tiap blok; kamera berkeliling dan tiap 25
+  detik terbang ke blok berikutnya. Buka dari opsi tampilan atau langsung
+  dengan `/?kiosk=1` (sekalian menyalakan Ikuti jam; `&sky=0` untuk tidak).
+  Esc keluar.
+
 ## Cara pakai
 
 - Drag = orbit, scroll = zoom, klik kanan drag = geser

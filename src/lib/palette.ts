@@ -5,6 +5,7 @@ import type {
   TypeFilter,
   YardContainer,
 } from './types';
+import { REAL_PAINT, REAL_REEFER_PAINT } from './realisticPaint';
 
 /** Warna badan kontainer per shipping line — mendekati livery aslinya. */
 export const LINE_COLOR: Record<string, string> = {
@@ -139,17 +140,35 @@ function hueFromCode(code: string): string {
 
 export const colorForLine = (code: string): string => LINE_COLOR[code] ?? hueFromCode(code);
 
-export function colorFor(c: YardContainer, mode: ColorMode): string {
+/**
+ * Cat GP saat pewarnaan dimatikan, menurut model kontainer yang dipakai.
+ * Kontainer realistis bercat abu-abu Maersk; aset GLB lama biru tua.
+ */
+export type PaintStyle = 'real' | 'asset';
+
+export const gpPaintFor = (style: PaintStyle = 'asset'): string =>
+  style === 'real' ? REAL_PAINT : ASSET_COLOR.gp;
+
+/** Cat reefer saat pewarnaan dimatikan: putih reefer realistis atau krem aset lama. */
+export const reeferPaintFor = (style: PaintStyle = 'asset'): string =>
+  style === 'real' ? REAL_REEFER_PAINT : ASSET_COLOR.reefer;
+
+/**
+ * @param bodyPaint cat badan livery kontainer ini (master YARD_LIVERY). Hanya
+ *   berlaku saat pewarnaan mati; menimpa cat bawaan GP/reefer.
+ */
+export function colorFor(c: YardContainer, mode: ColorMode, style: PaintStyle = 'asset', bodyPaint?: string): string {
   switch (mode) {
     case 'none':
+      if (bodyPaint && c.type !== 'tank') return bodyPaint;
       // Aturan pemilihan aset yang sama dengan renderer: reefer itu STATUS,
       // bukan jenis. Kalau dipisah, kontainer bisa memakai warna aset yang
       // bukan miliknya.
       return c.type === 'tank'
         ? ASSET_COLOR.tank
         : c.status === 'reefer'
-          ? ASSET_COLOR.reefer
-          : ASSET_COLOR.gp;
+          ? reeferPaintFor(style)
+          : gpPaintFor(style);
     case 'line':
       return colorForLine(c.line);
     case 'status':

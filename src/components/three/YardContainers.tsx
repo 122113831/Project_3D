@@ -25,6 +25,15 @@ import {
   createTankGeometry,
 } from '@/lib/geometry';
 import { writeColors, writeMatrices } from '@/lib/instances';
+import { isoFor } from '@/lib/containerCode';
+import { useCodedGeometry } from './useCodedGeometry';
+
+import { realisticContainerModel } from '@/lib/realisticContainer';
+import { realisticReeferModel } from '@/lib/realisticReefer';
+import { realisticTankModel } from '@/lib/realisticTank';
+import { marksListeners } from '@/lib/realisticContainer';
+import type { Livery } from '@/lib/livery';
+import { useLivery } from '@/store/useLivery';
 import type { YardBlock, YardContainer } from '@/lib/types';
 import { useYard } from '@/store/useYard';
 import { useEditor } from '@/store/useEditor';
@@ -142,9 +151,11 @@ type LayerProps = {
   pickable?: boolean;
   /** Material lapisan ini sudah membawa cat aslinya sendiri. */
   ownColors?: boolean;
+  /** Cat badan livery kelompok ini (level jauh, saat pewarnaan mati). */
+  bodyPaint?: string;
 };
 
-function InstancedLayer({ block, items, part, pickable = false, ownColors = false }: LayerProps) {
+function InstancedLayer({ block, items, part, pickable = false, ownColors = false, bodyPaint }: LayerProps) {
   const ref = useRef<THREE.InstancedMesh>(null);
   const invalidate = useThree((s) => s.invalidate);
 
@@ -152,6 +163,17 @@ function InstancedLayer({ block, items, part, pickable = false, ownColors = fals
   const filter = useYard((s) => s.filter);
   const selectedNo = useYard((s) => s.selected?.no ?? null);
   const shadows = useYard((s) => s.options.shadows);
+  const paintStyle = useYard((s) => (s.options.detail ? s.options.containerStyle : 'asset'));
+
+  // Kontainer realistis: geometri membawa NOMOR ASLI tiap kontainer sebagai
+  // atribut instance, digambar shader di badannya. Atribut lain dibagi
+  // dengan geometri aslinya, jadi buffer GPU-nya tidak berlipat.
+  // (useCodedGeometry: aman terhadap efek ganda StrictMode — lihat di sana.)
+  const codes = useMemo(
+    () => (part.material.userData.containerCode ? items.map((c) => ({ no: c.no, iso: isoFor(c) })) : null),
+    [part, items],
+  );
+  const geometry = useCodedGeometry(part.geometry, codes);
 
   // Matriks ditulis sekali. Posisi kontainer tidak pernah berubah, jadi buffer
   // ini di-upload ke GPU satu kali lalu tidak disentuh lagi.
@@ -161,27 +183,37 @@ function InstancedLayer({ block, items, part, pickable = false, ownColors = fals
     mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
     writeMatrices(mesh, block, items);
     invalidate();
-  }, [block, items, part, invalidate]);
+    // geometry: ganti geometri = args berubah = R3F membuat mesh baru, yang
+    // matriksnya masih kosong.
+  }, [block, items, part, geometry, invalidate]);
 
   // Warna ditulis ulang saat mode warna / filter / seleksi berubah.
   // Ini buffer terpisah dari matriks, jadi ganti filter tidak menyentuh posisi.
   useLayoutEffect(() => {
     const mesh = ref.current;
     if (!mesh) return;
-    writeColors(mesh, items, colorMode, filter, selectedNo, ownColors);
+    writeColors(mesh, items, colorMode, filter, selectedNo, ownColors, paintStyle, bodyPaint);
     invalidate();
-  }, [items, part, colorMode, filter, selectedNo, ownColors, invalidate]);
+  }, [items, part, geometry, colorMode, filter, selectedNo, ownColors, paintStyle, bodyPaint, invalidate]);
 
   useEffect(() => {
     const mesh = ref.current;
     if (!mesh || !pickable) return;
     return registerPickable({ mesh, block, items });
-  }, [block, items, pickable]);
+  }, [block, items, pickable, geometry]);
 
   return (
     <instancedMesh
       ref={ref}
-      args={[part.geometry, part.material, items.length]}
+      args={[geometry, part.material, items.length]}
+      // JANGAN biarkan R3F membuang geometri/material saat layer dilepas:
+      // keduanya milik bersama (model di-cache untuk seluruh lapangan, dan
+      // salinan berkode nomor berbagi buffer posisi/normal/UV). Dulu
+      // pembuangan otomatis itu menghapus buffer bersama dari GPU setiap kali
+      // satu layer dilepas — jendela detail ditutup, pewarnaan diganti, livery
+      // dikelompokkan ulang — dan layer lain lalu tergambar HITAM. Salinan
+      // berkode dibuang manual oleh disposeCodes di atas.
+      dispose={null}
       castShadow={shadows}
       receiveShadow={shadows}
       // frustumCulled dibiarkan aktif: karena mesh dipecah per blok, blok yang
@@ -197,6 +229,8 @@ type StackProps = {
   near: ModelPart[] | null;
   /** Material level dekat sudah membawa cat aslinya sendiri. */
   nearOwnColors?: boolean;
+  /** Cat badan livery kelompok ini — level jauh memakainya saat pewarnaan mati. */
+  bodyPaint?: string;
 };
 
 /**
@@ -207,7 +241,7 @@ type StackProps = {
  * seluruh matriks ditulis + di-upload lagi — persis saat kamera sedang
  * bergerak, yaitu saat frame budget paling sempit.
  */
-function ContainerStack({ block, items, far, near, nearOwnColors = false }: StackProps) {
+function ContainerStack({ block, items, far, near, nearOwnColors = false, bodyPaint }: StackProps) {
   const farRef = useRef<THREE.Group>(null);
   const nearRef = useRef<THREE.Group>(null);
   const invalidate = useThree((s) => s.invalidate);
@@ -232,7 +266,7 @@ function ContainerStack({ block, items, far, near, nearOwnColors = false }: Stac
     return (
       <>
         {far.map((part) => (
-          <InstancedLayer key={part.name} block={block} items={items} part={part} pickable />
+          <InstancedLayer key={part.name} block={block} items={items} part={part} pickable bodyPaint={bodyPaint} />
         ))}
       </>
     );
@@ -245,7 +279,7 @@ function ContainerStack({ block, items, far, near, nearOwnColors = false }: Stac
           diraycast daripada puluhan ribu segitiga per instance. */}
       <group ref={farRef}>
         {far.map((part) => (
-          <InstancedLayer key={part.name} block={block} items={items} part={part} pickable />
+          <InstancedLayer key={part.name} block={block} items={items} part={part} pickable bodyPaint={bodyPaint} />
         ))}
       </group>
       <group ref={nearRef} visible={false}>
@@ -274,9 +308,13 @@ function LodDriver() {
   return null;
 }
 
-function Blocks({ models }: { models: DetailModels | null }) {
+type Kind = 'gp' | 'reefer' | 'tank';
+type Group = { key: string; kind: Kind; size: 20 | 40; livery: Livery | null; items: YardContainer[] };
+
+function Blocks({ models, real }: { models: DetailModels | null; real: boolean }) {
   const data = useYardView();
   const far = useFarAssets();
+  const resolve = useLivery((s) => s.resolve);
 
   // Saat pewarnaan dimatikan, level dekat memakai varian TANPA normalisasi:
   // cat asli asetnya sendiri, termasuk aset yang catnya lebih dari satu warna
@@ -287,61 +325,68 @@ function Blocks({ models }: { models: DetailModels | null }) {
   // lebih baik warnanya meleset satu frame daripada kontainernya hilang.
   const detail = models ? (apaAdanya ? (models.plain ?? models.tinted) : models.tinted) : null;
   const pakaiWarnaAset = apaAdanya && models?.plain != null;
+  const useLiveries = real && models != null;
 
-  // Kontainer dipisah per (ukuran, jenis) karena tiap kelompok punya geometri
-  // sendiri. Tank hanya ada 20ft, jadi tidak ada kelompok tank 40ft.
+  // Kontainer dipisah per (jenis, ukuran) karena tiap kelompok punya geometri
+  // sendiri, dan — untuk kontainer realistis — per LIVERY dari master
+  // YARD_LIVERY (prefix nomor kontainer → merek), karena tiap merek punya
+  // atlas marka dan cat sendiri. Tank tetap aset lamanya, tanpa livery.
   const split = useMemo(
     () =>
-      (data?.blocks ?? []).map((block) => ({
-        block,
-        gp20: block.containers.filter((c) => kindOf(c) === 'gp' && c.size === 20),
-        gp40: block.containers.filter((c) => kindOf(c) === 'gp' && c.size === 40),
-        reefer20: block.containers.filter((c) => kindOf(c) === 'reefer' && c.size === 20),
-        reefer40: block.containers.filter((c) => kindOf(c) === 'reefer' && c.size === 40),
-        tank20: block.containers.filter((c) => kindOf(c) === 'tank'),
-      })),
-    [data],
+      (data?.blocks ?? []).map((block) => {
+        const groups = new Map<string, Group>();
+        for (const c of block.containers) {
+          const kind = kindOf(c) as Kind;
+          const size: 20 | 40 = kind === 'tank' ? 20 : c.size === 40 ? 40 : 20;
+          // Tank hanya memakai livery bermodel TANK (tank realistis); tank
+          // lain tetap aset GLB lamanya.
+          const found = useLiveries ? resolve(c) : null;
+          const livery = kind === 'tank' ? (found?.model === 'TANK' ? found : null) : found;
+          const key = `${kind}${size}|${livery?.code ?? ''}`;
+          const g = groups.get(key);
+          if (g) g.items.push(c);
+          else groups.set(key, { key, kind, size, livery, items: [c] });
+        }
+        return { block, groups: [...groups.values()] };
+      }),
+    [data, resolve, useLiveries],
   );
+
+  const nearFor = (g: Group): ModelPart[] | null => {
+    if (!detail) return null;
+    if (useLiveries && g.kind === 'tank' && g.livery) {
+      return realisticTankModel(apaAdanya ? 'plain' : 'tint', g.livery).parts20;
+    }
+    if (useLiveries && g.kind !== 'tank') {
+      const variant = apaAdanya ? 'plain' : 'tint';
+      const model =
+        g.kind === 'gp'
+          ? realisticContainerModel(variant, g.livery ?? undefined)
+          : realisticReeferModel(variant, g.livery ?? undefined);
+      return g.size === 40 ? model.parts40! : model.parts20;
+    }
+    const set = g.kind === 'gp' ? detail.container : g.kind === 'reefer' ? detail.reefer : detail.tank;
+    return (g.size === 40 && set.parts40) || set.parts20;
+  };
 
   return (
     <group>
-      {split.map(({ block, gp20, gp40, reefer20, reefer40, tank20 }) => (
+      {split.map(({ block, groups }) => (
         <group key={block.id}>
-          <ContainerStack
-            block={block}
-            items={gp20}
-            far={far.gp20}
-            near={detail?.container.parts20 ?? null}
-            nearOwnColors={pakaiWarnaAset}
-          />
-          <ContainerStack
-            block={block}
-            items={gp40}
-            far={far.gp40}
-            near={detail?.container.parts40 ?? null}
-            nearOwnColors={pakaiWarnaAset}
-          />
-          <ContainerStack
-            block={block}
-            items={reefer20}
-            far={far.reefer20}
-            near={detail?.reefer.parts20 ?? null}
-            nearOwnColors={pakaiWarnaAset}
-          />
-          <ContainerStack
-            block={block}
-            items={reefer40}
-            far={far.reefer40}
-            near={detail?.reefer.parts40 ?? null}
-            nearOwnColors={pakaiWarnaAset}
-          />
-          <ContainerStack
-            block={block}
-            items={tank20}
-            far={far.tank20}
-            near={detail?.tank.parts20 ?? null}
-            nearOwnColors={pakaiWarnaAset}
-          />
+          {groups.map((g) => {
+            const realistic = useLiveries && (g.kind !== 'tank' || g.livery != null);
+            return (
+              <ContainerStack
+                key={g.key}
+                block={block}
+                items={g.items}
+                far={far[`${g.kind}${g.size}` as keyof typeof far]}
+                near={nearFor(g)}
+                nearOwnColors={realistic ? apaAdanya : pakaiWarnaAset}
+                bodyPaint={realistic ? g.livery?.bodyColor : undefined}
+              />
+            );
+          })}
         </group>
       ))}
     </group>
@@ -350,7 +395,8 @@ function Blocks({ models }: { models: DetailModels | null }) {
 
 function DetailedBlocks() {
   const plainNeeded = useYard((s) => s.colorMode) === 'none';
-  return <Blocks models={useDetailModels(plainNeeded)} />;
+  const real = useYard((s) => s.options.containerStyle) === 'real';
+  return <Blocks models={useDetailModels(plainNeeded)} real={real} />;
 }
 
 export function YardContainers() {
@@ -360,6 +406,17 @@ export function YardContainers() {
   // melepasnya berarti mengunggah ulang seluruh matriks instance saat editor
   // ditutup, dan di lapangan demo itu terasa.
   const editing = useEditor((s) => s.open);
+  const invalidate = useThree((s) => s.invalidate);
+
+  // Master livery (prefix → merek) dimuat sekali; logo berkas yang selesai
+  // dimuat belakangan meminta satu frame baru (frameloop "demand").
+  useEffect(() => {
+    void useLivery.getState().load();
+    marksListeners.add(invalidate);
+    return () => {
+      marksListeners.delete(invalidate);
+    };
+  }, [invalidate]);
 
   return (
     <group visible={!editing}>
@@ -367,11 +424,11 @@ export function YardContainers() {
       {detail ? (
         // Selama kedua GLB masih diunduh, lapangan sudah tampil penuh dengan
         // geometri prosedural — tidak ada layar kosong.
-        <Suspense fallback={<Blocks models={null} />}>
+        <Suspense fallback={<Blocks models={null} real={false} />}>
           <DetailedBlocks />
         </Suspense>
       ) : (
-        <Blocks models={null} />
+        <Blocks models={null} real={false} />
       )}
     </group>
   );

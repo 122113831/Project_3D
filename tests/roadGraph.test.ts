@@ -94,3 +94,60 @@ describe('buildRoadGraph', () => {
     expect(unreachableBlocks(g3)).toEqual([]);
   });
 });
+
+describe('titik berhenti truk di lajur layanan', () => {
+  // Blok panjang supaya truk bisa menepi lurus dari kedua arah.
+  const L = block('L', 0, 0, 30, 6); // 192 x 17,4 m; lajur layanan di Z = 17,4 + 3
+  const laneZ = 17.4 + 15.2;
+  const gL: LayoutEquipment = { id: 'gL', kind: 'gate', x: 192 + 20, z: laneZ, ry: 0 };
+  const g = buildRoadGraph([L], [], [gL], { x: 96, z: 150 });
+  const serviceZ = 17.4 + 3;
+
+  it('berhenti SEJAJAR blok setelah melaju lurus di lajur layanan', () => {
+    const stop = stopFor(g, L, 14, 20)!;
+    const picked: { entry?: import('@/lib/roadGraph').StopEntry } = {};
+    const path = routeToStop(g, g.gates[0], stop, picked)!;
+    expect(picked.entry?.via).not.toBeNull();
+    const a = path[path.length - 2];
+    const b = path[path.length - 1];
+    // Ruas terakhir di lajur layanan (Z tetap), searah sumbu panjang blok.
+    expect(Math.abs(a.z - serviceZ)).toBeLessThan(0.01);
+    expect(Math.abs(b.z - serviceZ)).toBeLessThan(0.01);
+    expect(Math.abs(b.x - a.x)).toBeGreaterThanOrEqual(15.4);
+  });
+
+  it('tengah chassis tepat di bay: titik pose maju LOAD_BEHIND searah laju', async () => {
+    const { LOAD_BEHIND } = await import('@/lib/roadGraph');
+    const stop = stopFor(g, L, 14, 20)!;
+    const bayX = (14 + 0.5) * 6.4;
+    for (const e of stop.entries) expect(e.pt.x - e.dir * LOAD_BEHIND).toBeCloseTo(bayX, 5);
+  });
+
+  it('keluar melaju terus ke depan di lajur layanan, tidak berbalik', () => {
+    const stop = stopFor(g, L, 14, 20)!;
+    const picked: { entry?: import('@/lib/roadGraph').StopEntry } = {};
+    routeToStop(g, g.gates[0], stop, picked);
+    const out = routeFromStop(g, stop, g.gates[0], picked.entry)!;
+    const e = picked.entry!;
+    expect(Math.abs(out[1].z - serviceZ)).toBeLessThan(0.01);
+    expect(Math.sign(out[1].x - out[0].x)).toBe(e.dir);
+  });
+});
+
+describe('RTG menaungi lajur truk', () => {
+  it('sumbu RTG digeser ke sisi lajur, dan lajur layanan di dalam relnya', async () => {
+    const { rtgLaneZ, rtgCoversLane, snapRtgToLane } = await import('@/lib/equipment');
+    const kiri = block('K', 0, 0, 20, 6);
+    const kanan = { ...block('N', 0, 100, 20, 6), truckLane: 'R' as const };
+    expect(rtgLaneZ(kiri)).toBeCloseTo(8.7 + 2.3, 5);
+    expect(rtgLaneZ(kanan)).toBeCloseTo(100 + 8.7 - 2.3, 5);
+    expect(rtgCoversLane(kiri, rtgLaneZ(kiri))).toBe(true);
+    expect(rtgCoversLane(kanan, rtgLaneZ(kanan))).toBe(true);
+    // Di tengah blok, atau digeser ke sisi seberang: lajur di luar rel.
+    expect(rtgCoversLane(kiri, 8.7)).toBe(false);
+    expect(rtgCoversLane(kiri, 8.7 - 2.3)).toBe(false);
+    // Diklik di mana pun di atas blok: dijepret ke sumbu lajurnya.
+    expect(snapRtgToLane([kiri], 40, 3)).toBeCloseTo(rtgLaneZ(kiri), 5);
+    expect(snapRtgToLane([kiri], 40, 60)).toBe(60);
+  });
+});

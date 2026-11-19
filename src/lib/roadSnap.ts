@@ -72,6 +72,36 @@ function laneEnds(b: SnapBlock): [[number, number], [number, number]] {
   return [aroundBlock(b, -length / 2, off), aroundBlock(b, length / 2, off)];
 }
 
+/**
+ * Ubin jalan lurus yang menggantikan jalan bawaan sebuah blok: berderet di
+ * garis lorongnya dari ujung awal sampai ujung akhir, potongan terakhir
+ * dipendekkan sepanjang sisa. Ujung-ujungnya jatuh tepat di ujung lorong
+ * lama, jadi ubin penyambung yang sudah ada tetap bersambung.
+ */
+export function laneRoadTiles(
+  b: SnapBlock,
+  makeId: () => string,
+): { id: string; kind: 'straight'; x: number; z: number; ry: number; len?: number }[] {
+  const length = b.slots * PITCH.teu;
+  const [[ax, az], [ex, ez]] = laneEnds(b);
+  const ux = (ex - ax) / length;
+  const uz = (ez - az) / length;
+  const out: { id: string; kind: 'straight'; x: number; z: number; ry: number; len?: number }[] = [];
+  for (let at = 0; at < length - MIN_LEN; at += ROAD.tile) {
+    const len = Math.min(ROAD.tile, length - at);
+    const mid = at + len / 2;
+    out.push({
+      id: makeId(),
+      kind: 'straight',
+      x: Math.round((ax + ux * mid) * 100) / 100,
+      z: Math.round((az + uz * mid) * 100) / 100,
+      ry: b.rot ?? 0,
+      ...(len < ROAD.tile - 0.01 ? { len: Math.round(len * 100) / 100 } : {}),
+    });
+  }
+  return out;
+}
+
 export const snapTile = (v: number) =>
   (Math.round(v / ROAD.tile - 0.5) + 0.5) * ROAD.tile;
 
@@ -82,6 +112,8 @@ export type SnapBlock = {
   rows: number;
   rot?: number;
   truckLane?: 'L' | 'R';
+  /** false = blok tanpa jalan bawaan; lihat LayoutBlock.ownRoad. */
+  ownRoad?: boolean;
 };
 
 export type SnapRoad = {
@@ -204,7 +236,9 @@ function freeRun(
   }
 
   // Lorong blok lain: potongan berhenti tepat di ujungnya, tidak menimpanya.
+  // Blok tanpa jalan bawaan tidak punya ujung lorong untuk dihindari.
   for (const b of blocks) {
+    if (b.ownRoad === false) continue;
     for (const [px, pz] of laneEnds(b)) {
       const [t, p] = project(px, pz);
       if (t <= 0 || p > ROAD.width / 2) continue;
@@ -259,6 +293,23 @@ export function snapRoad(
 
     const along = (x - ax) * ux + (z - az) * uz;
     const perp = Math.abs((x - ax) * -uz + (z - az) * ux);
+
+    // Blok tanpa jalan bawaan: garis lorongnya kosong, dan ubin justru
+    // DITARUH DI ATASNYA — sepanjang blok, berderet dari ujung awal lorong,
+    // supaya jalan buatan pengguna jatuh tepat di garis tempat truk berhenti.
+    if (b.ownRoad === false) {
+      const k = Math.max(-1, Math.min(Math.ceil(length / ROAD.tile), Math.round(along / ROAD.tile - 0.5)));
+      anchors.push({
+        ex: ax + ux * k * ROAD.tile,
+        ez: az + uz * k * ROAD.tile,
+        dx: ux,
+        dz: uz,
+        base: b.rot ?? 0,
+        aim: perp,
+        limit: LANE_AIM,
+      });
+      continue;
+    }
 
     // Ubin ditaruh DI LUAR rentang blok, melanjutkan jalannya — tidak pernah
     // di atasnya. Ujung mana yang dipakai ditentukan sisi klik, dan mengklik

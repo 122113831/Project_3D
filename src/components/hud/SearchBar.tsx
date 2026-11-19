@@ -8,8 +8,11 @@ import { Panel } from './ui';
 /**
  * Cari nomor kontainer, nomor truk, atau nomor job.
  *
- * Kontainer: kamera terbang ke posisinya dan layar inspeksi terbuka. Truk atau
- * job yang sedang berjalan di lapangan: truknya dipilih dan kamera mengikutinya.
+ * Kontainer: kamera terbang ke posisinya dan kontainernya ditandai kotak
+ * kuning berdenyut yang tembus pandang tumpukan (lihat Selection). Layar
+ * inspeksi TIDAK langsung dibuka — ia menutupi separuh layar dan meredupkan
+ * lapangan, padahal yang dicari justru letaknya; tombol Detail membukanya.
+ * Truk atau job yang sedang berjalan: truknya dipilih dan kamera mengikutinya.
  *
  * Sengaja TIDAK ikut memfilter lapangan: kontainer di sekitarnya tetap
  * terlihat sebagai konteks, dan yang dicari ditandai kotak sorot kuning.
@@ -22,6 +25,8 @@ export function SearchBar() {
   const [text, setText] = useState('');
   const [notFound, setNotFound] = useState(false);
   const select = useYard((s) => s.select);
+  const locate = useYard((s) => s.locate);
+  const located = useYard((s) => s.located);
   const data = useYard((s) => s.data);
   const trips = useTraffic((s) => s.trips);
 
@@ -39,6 +44,7 @@ export function SearchBar() {
     setNotFound(false);
     if (!q) {
       select(null);
+      locate(null);
       return;
     }
     // Truk atau job yang sedang berjalan lebih dulu: nomornya pendek dan mudah
@@ -53,17 +59,19 @@ export function SearchBar() {
       return;
     }
     const { data: yard } = useYard.getState();
-    for (const b of yard?.blocks ?? []) {
-      const hit = b.containers.find((c) => c.no.includes(q));
-      if (hit) {
-        select(hit, true);
-        return;
-      }
+    // Nomor persis lebih dulu, baru yang memuat teks yang diketik.
+    const all = (yard?.blocks ?? []).flatMap((b) => b.containers);
+    const hit = all.find((c) => c.no.replace(/\s+/g, '').toUpperCase() === q) ?? all.find((c) => c.no.includes(q));
+    if (hit) {
+      locate(hit);
+      return;
     }
+    locate(null);
     setNotFound(true);
   };
 
   return (
+    <div className="pointer-events-none flex flex-col items-center gap-1.5">
     <Panel className="pointer-events-auto flex items-center gap-2 px-3 py-2">
       <input
         value={text}
@@ -91,5 +99,38 @@ export function SearchBar() {
       </button>
       {notFound && <span className="text-[11px] text-amber-300">tidak ada</span>}
     </Panel>
+    {located && (
+      <Panel className="pointer-events-auto flex items-center gap-2 px-3 py-1.5 text-[11px]">
+        <span className="h-2 w-2 animate-pulse rounded-full bg-amber-300" />
+        <span className="font-semibold tracking-wide text-amber-200">{located.no}</span>
+        <span className="text-slate-300">
+          {located.block} · bay {located.bay + 1} · row {located.row + 1} · tier {located.tier}
+        </span>
+        <button
+          type="button"
+          onClick={() => useYard.getState().locate(located)}
+          title="Terbang lagi ke kontainer ini"
+          className="rounded-md border border-white/15 px-1.5 py-0.5 text-slate-200 hover:border-sky-300/60 hover:text-white"
+        >
+          Fokus
+        </button>
+        <button
+          type="button"
+          onClick={() => select(located)}
+          className="rounded-md border border-white/15 px-1.5 py-0.5 text-slate-200 hover:border-sky-300/60 hover:text-white"
+        >
+          Detail
+        </button>
+        <button
+          type="button"
+          onClick={() => locate(null)}
+          aria-label="Hapus tanda"
+          className="rounded-md px-1 text-slate-400 hover:text-white"
+        >
+          ✕
+        </button>
+      </Panel>
+    )}
+    </div>
   );
 }

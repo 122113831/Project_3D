@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { colorFor, GHOST_COLOR, HIGHLIGHT_COLOR } from './palette';
+import { colorFor, GHOST_COLOR, HIGHLIGHT_COLOR, type PaintStyle } from './palette';
 import { containerPosition } from './yard';
 import type {
   ColorMode,
@@ -100,6 +100,10 @@ export function writeColors(
    * mengalikannya dengan warna aset lagi akan menggandakan catnya.
    */
   ownColors = false,
+  /** Model realistis atau aset lama: menentukan cat saat pewarnaan dimatikan. */
+  paintStyle?: PaintStyle,
+  /** Cat badan livery kelompok ini, dipakai saat pewarnaan mati. */
+  bodyPaint?: string,
 ) {
   const filtering =
     filter.lines.length > 0 ||
@@ -112,7 +116,7 @@ export function writeColors(
     if (c.no === selectedNo) _c.set(HIGHLIGHT_COLOR);
     else if (filtering && !matchesFilter(c, filter)) _c.set(GHOST_COLOR);
     else if (ownColors) _c.setRGB(1, 1, 1);
-    else _c.set(colorFor(c, mode));
+    else _c.set(colorFor(c, mode, paintStyle, bodyPaint));
     mesh.setColorAt(i, _c);
   }
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;

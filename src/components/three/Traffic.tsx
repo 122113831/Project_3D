@@ -10,10 +10,14 @@ import {
   buildRoadGraph,
   keepLeft,
   makeRoute,
+  nearestS,
+  roundCorners,
   routeFromStop,
   routeToStop,
   sampleRoute,
   stopFor,
+  type Stop,
+  type StopEntry,
   unreachableBlocks,
   type GateNode,
   type Pt,
@@ -26,7 +30,9 @@ import { fetchContainer } from '@/lib/yardApi';
 import { useEditor } from '@/store/useEditor';
 import { useTraffic, type Trip } from '@/store/useTraffic';
 import { useYardView } from '@/store/useYardView';
+import { GATE, ROAD } from '@/lib/constants';
 import {
+  allTruckPoses,
   dropTruck,
   routesVersion,
   setTruckPose,
@@ -74,6 +80,23 @@ const MAX_HOLD = 6;
 /** Jarak area tunggu dari gerbang, diukur sepanjang jalan. */
 const HOLD_DISTANCE = 45;
 
+/** Percepatan dan pengereman, m/detik², sebelum pengali kecepatan HUD. */
+const ACCEL = 2.2;
+const BRAKE = 3.5;
+
+/** Berhenti di timbangan gate, detik waktu animasi. */
+const GATE_PAUSE = 2.5;
+
+/** Jarak tengok ke depan untuk lampu sein, meter. */
+const SIGNAL_AHEAD = 24;
+
+/** Rute dari titik-titik graf: lajur kiri, tikungan dibulatkan. */
+const lane = (pts: Pt[], keepFirst: boolean | number, keepLast: boolean | number) =>
+  makeRoute(roundCorners(keepLeft(pts, KEEP_LEFT, keepFirst, keepLast)));
+
+/** Selisih sudut terkecil, bertanda (positif = belok kiri). */
+const turn = (from: number, to: number) => Math.atan2(Math.sin(to - from), Math.cos(to - from));
+
 type Dest = { block: YardBlock; c: YardContainer };
 
 type Mover = {
@@ -82,7 +105,9 @@ type Mover = {
   s: number;
   /** in: menuju tujuan · hold: menunggu tujuan · wait: di bay · out: pulang */
   phase: 'in' | 'hold' | 'wait' | 'out';
-  stop: { pt: Pt; links: number[] } | null;
+  stop: Stop | null;
+  /** Cara masuk yang dipakai (arah laju di lajur layanan), dipakai lagi saat keluar. */
+  entry: StopEntry | null;
   dest: Dest | null;
   /** Sedang bertanya tujuan ke database. */
   resolving: boolean;
@@ -90,6 +115,14 @@ type Mover = {
   z: number;
   ry: number;
   held: number;
+  /** Kecepatan sekarang, m/detik dasar (sebelum pengali HUD). */
+  v: number;
+  /** Jarak di rute tempat truk berhenti di timbangan gate, atau null. */
+  pauseAt: number | null;
+  pauseLeft: number;
+  /** Lampu sein: -1 kanan, 0 mati, 1 kiri. */
+  signal: number;
+  braking: boolean;
 };
 
 const byPosition = (a: GateNode, b: GateNode) => a.x - b.x || a.z - b.z;
@@ -154,6 +187,112 @@ function holdPoint(g: RoadGraph, gate: GateNode): { pts: Pt[]; node: number } | 
   }
   if (!best) return null;
   return { pts: [gate.outside, ...best.path.map((i) => g.nodes[i])], node: best.node };
+}
+
+/** Pasang jeda timbangan di titik rute terdekat ke gerbang. */
+function armGatePause(m: Mover, gate: GateNode) {
+  m.pauseAt = nearestS(m.route, gate);
+  m.pauseLeft = GATE_PAUSE;
+}
+
+/**
+ * Palang gerbang: dua lengan berengsel di tiang luar, terangkat begitu ada
+ * truk dalam 26 m, turun lagi setelah lewat. Plat timbangan di bawah kanopi
+ * menandai tempat truk berhenti.
+ *
+ * Gerakannya dihitung tiap frame tapi hanya meminta frame baru selama ada
+ * lengan yang masih bergerak — palang yang diam tidak membuat GPU bekerja.
+ */
+function GateBarriers({ graph }: { graph: RoadGraph }) {
+  const invalidate = useThree((s) => s.invalidate);
+  const gates = useMemo(
+    () =>
+      graph.gates.map((g) => {
+        const ux = g.outside.x - g.x;
+        const uz = g.outside.z - g.z;
+        return { id: g.id, x: g.x, z: g.z, ry: Math.atan2(-uz, ux) };
+      }),
+    [graph],
+  );
+  const arm = useMemo(() => {
+    const len = GATE.span / 2 - 0.9;
+    const geo = new THREE.BoxGeometry(0.18, 0.18, len);
+    geo.translate(0, 0, -len / 2);
+    return geo;
+  }, []);
+  const plate = useMemo(() => new THREE.BoxGeometry(GATE.depth - 1, 0.08, ROAD.width - 1), []);
+  const post = useMemo(() => new THREE.BoxGeometry(0.6, 1.1, 0.6), []);
+  useEffect(
+    () => () => {
+      arm.dispose();
+      plate.dispose();
+      post.dispose();
+    },
+    [arm, plate, post],
+  );
+
+  const angles = useRef(new Map<string, number>());
+  const groups = useRef(new Map<string, THREE.Group>());
+
+  useFrame((_, delta) => {
+    const poses = allTruckPoses();
+    let changing = false;
+    for (const g of gates) {
+      let near = false;
+      for (const p of poses.values()) {
+        if (Math.hypot(p.x - g.x, p.z - g.z) < 26) {
+          near = true;
+          break;
+        }
+      }
+      const target = near ? 1.35 : 0;
+      const cur = angles.current.get(g.id) ?? 0;
+      const next = cur + (target - cur) * Math.min(1, delta * 3.5);
+      angles.current.set(g.id, next);
+      if (Math.abs(next - target) > 0.002) changing = true;
+      const grp = groups.current.get(g.id);
+      if (grp) {
+        const [a, b] = grp.children as THREE.Object3D[];
+        // Lengan berengsel di +Z memutar +X untuk naik; yang di -Z sebaliknya.
+        if (a) a.rotation.x = next;
+        if (b) b.rotation.x = -next;
+      }
+    }
+    if (changing) invalidate();
+  });
+
+  const half = GATE.span / 2 - 0.4;
+  const outer = GATE.depth / 2 + 0.8;
+  return (
+    <>
+      {gates.map((g) => (
+        <group key={g.id} position={[g.x, 0, g.z]} rotation-y={g.ry}>
+          <group
+            ref={(el) => {
+              if (el) groups.current.set(g.id, el);
+              else groups.current.delete(g.id);
+            }}
+          >
+            <mesh geometry={arm} position={[outer, 1.05, half]}>
+              <meshPhongMaterial color="#d63c3c" />
+            </mesh>
+            <mesh geometry={arm} position={[outer, 1.05, -half]} rotation-y={Math.PI}>
+              <meshPhongMaterial color="#d63c3c" />
+            </mesh>
+          </group>
+          <mesh geometry={post} position={[outer, 0.55, half + 0.4]}>
+            <meshPhongMaterial color="#f2c94c" />
+          </mesh>
+          <mesh geometry={post} position={[outer, 0.55, -half - 0.4]}>
+            <meshPhongMaterial color="#f2c94c" />
+          </mesh>
+          <mesh geometry={plate} position={[0, 0.06, 0]}>
+            <meshLambertMaterial color="#4b5058" />
+          </mesh>
+        </group>
+      ))}
+    </>
+  );
 }
 
 function Fleet({ graph, find, blocks }: {
@@ -245,8 +384,13 @@ function Fleet({ graph, find, blocks }: {
       }
     }
     const stop = stopFor(g, dest.block, dest.c.bay, dest.c.size);
-    if (!stop) return `blok ${dest.block.id} tidak dikenal`;
+    if (!stop) {
+      return dest.block.ownRoad === false
+        ? `blok ${dest.block.id}: tidak ada ubin jalan di lorong dekat slot ${dest.c.bay * 2 + 1}`
+        : `blok ${dest.block.id} tidak dikenal`;
+    }
     let path: Pt[] | null;
+    const picked: { entry?: StopEntry } = {};
     if (from) {
       // Dari area tunggu: cari dari node terdekat ke posisi sekarang.
       let near = 0;
@@ -259,19 +403,27 @@ function Fleet({ graph, find, blocks }: {
         }
       });
       const fake: GateNode = { id: 'hold', kind: 'in', node: near, x: from.x, z: from.z, outside: from };
-      path = routeToStop(g, fake, stop);
+      path = routeToStop(g, fake, stop, picked);
     } else {
       const trip = useTraffic.getState().trips[m.id];
       const gate = pickGate(g, 'in', trip?.gateInNo ?? null);
       if (!gate) return 'tata letak belum punya gate masuk';
-      path = routeToStop(g, gate, stop);
+      path = routeToStop(g, gate, stop, picked);
     }
     if (!path) return `blok ${dest.block.id} tidak tersambung jalan ke gate`;
-    m.route = makeRoute(keepLeft(path, KEEP_LEFT, !!from, true));
+    // Ekor rute di lajur layanan (menepi + lurus) tidak digeser ke kiri.
+    m.route = lane(path, !!from, picked.entry?.via ? 2 : 1);
+    m.entry = picked.entry ?? null;
     m.s = 0;
     m.phase = 'in';
     m.stop = stop;
     m.dest = dest;
+    // Masuk langsung dari luar gerbang: berhenti dulu di timbangan.
+    if (!from) {
+      const trip = useTraffic.getState().trips[m.id];
+      const gate = pickGate(g, 'in', trip?.gateInNo ?? null);
+      if (gate) armGatePause(m, gate);
+    }
     setTruckRoute(m.id, m.route.pts);
     return null;
   };
@@ -300,9 +452,15 @@ function Fleet({ graph, find, blocks }: {
       const m: Mover = {
         id: trip.id,
         route: makeRoute([gate.outside]),
+        v: 0,
+        pauseAt: null,
+        pauseLeft: 0,
+        signal: 0,
+        braking: false,
         s: 0,
         phase: 'hold',
         stop: null,
+        entry: null,
         dest: null,
         resolving: false,
         x: gate.outside.x,
@@ -329,8 +487,9 @@ function Fleet({ graph, find, blocks }: {
         movers.current.delete(trip.id);
         return 'tidak ada jalan di dalam gerbang untuk menunggu';
       }
-      m.route = makeRoute(keepLeft(hold.pts, KEEP_LEFT, false, false));
+      m.route = lane(hold.pts, false, false);
       m.phase = 'in';
+      armGatePause(m, gate);
       setTruckRoute(m.id, m.route.pts);
       return null;
     };
@@ -345,6 +504,12 @@ function Fleet({ graph, find, blocks }: {
   const up = useMemo(() => new THREE.Vector3(0, 1, 0), []);
   const pos = useMemo(() => new THREE.Vector3(), []);
   const one = useMemo(() => new THREE.Vector3(1, 1, 1), []);
+  const lamp = useMemo(() => new THREE.Matrix4(), []);
+  const sig = useMemo(() => new THREE.Matrix4(), []);
+  const signalRef = useRef<THREE.InstancedMesh>(null);
+  const brakeRef = useRef<THREE.InstancedMesh>(null);
+  const lampGeo = useMemo(() => new THREE.SphereGeometry(0.28, 8, 6), []);
+  useEffect(() => () => lampGeo.dispose(), [lampGeo]);
 
   useFrame((_, delta) => {
     const dt = Math.min(delta, 0.1);
@@ -353,7 +518,11 @@ function Fleet({ graph, find, blocks }: {
     let moving = false;
     let n = 0;
     let nl = 0;
+    let ns = 0;
+    let nb = 0;
     const seq: string[] = [];
+    // Kedip sein ±1,5 Hz, waktu nyata.
+    const blink = Math.floor(performance.now() / 330) % 2 === 0;
 
     for (const m of movers.current.values()) {
       const trip = trips[m.id];
@@ -396,25 +565,58 @@ function Fleet({ graph, find, blocks }: {
       if (m.phase === 'wait' && trip.leaving && job?.stage === 'done' && m.stop) {
         const g = graphRef.current;
         const gate = pickGate(g, 'out', trip.gateOutNo);
-        const path = gate ? routeFromStop(g, m.stop, gate) : null;
+        const path = gate ? routeFromStop(g, m.stop, gate, m.entry) : null;
         if (!path) {
           skip(m.id, gate ? 'tidak ada jalan dari blok ke gate keluar' : 'tata letak belum punya gate keluar');
           continue;
         }
-        m.route = makeRoute(keepLeft(path, KEEP_LEFT, true, false));
+        m.route = lane(path, m.entry?.outVia ? 2 : 1, false);
         m.s = 0;
         m.phase = 'out';
+        m.v = 0;
+        armGatePause(m, gate!);
         setTruckRoute(m.id, m.route.pts);
       }
 
       if (m.phase === 'in' || m.phase === 'out') {
         moving = true;
-        if (m.held < MAX_HOLD && blockedAhead(m, movers.current.values())) {
-          m.held += dt * speed;
+        const step = dt * speed;
+        // Kecepatan sasaran: penuh di jalan lurus, turun menjelang tikungan
+        // (dilihat dari beda arah di depan), dan cukup rendah untuk bisa
+        // berhenti tepat di ujung rute atau di timbangan gate.
+        const here = sampleRoute(m.route, m.s + 2).ry;
+        const ahead = sampleRoute(m.route, m.s + 14).ry;
+        const curve = Math.min(1, Math.abs(turn(here, ahead)) / (Math.PI / 2));
+        let target = DRIVE * (1 - 0.65 * curve);
+        const toEnd = m.route.length - m.s;
+        target = Math.min(target, Math.sqrt(2 * BRAKE * Math.max(0, toEnd)) + 0.6);
+        if (m.pauseAt !== null) {
+          target = Math.min(target, Math.sqrt(2 * BRAKE * Math.max(0, m.pauseAt - m.s)));
+        }
+        const blocked = m.held < MAX_HOLD && blockedAhead(m, movers.current.values());
+        if (blocked) {
+          target = 0;
+          m.held += step;
         } else {
           m.held = 0;
-          m.s += dt * DRIVE * speed;
         }
+        const prev = m.v;
+        m.v += Math.max(-BRAKE * step, Math.min(ACCEL * step, target - m.v));
+        m.v = Math.max(0, m.v);
+        m.braking = m.v < prev - 1e-4 || (m.v < 0.3 && target < 0.3);
+        m.s += m.v * step;
+        // Timbangan: tahan di titiknya selama GATE_PAUSE.
+        if (m.pauseAt !== null && m.s >= m.pauseAt - 0.6) {
+          m.s = Math.min(m.s, m.pauseAt);
+          if (m.v < 0.6) {
+            m.v = 0;
+            m.pauseLeft -= step;
+            if (m.pauseLeft <= 0) m.pauseAt = null;
+          }
+        }
+        // Lampu sein: tikungan berarti di depan.
+        const far = turn(sampleRoute(m.route, m.s).ry, sampleRoute(m.route, m.s + SIGNAL_AHEAD).ry);
+        m.signal = Math.abs(far) > 0.35 && toEnd > 6 ? Math.sign(far) : 0;
         if (m.s >= m.route.length) {
           m.s = m.route.length;
           if (m.phase === 'out') {
@@ -439,6 +641,25 @@ function Fleet({ graph, find, blocks }: {
       chassisRef.current?.setMatrixAt(n, m4);
       seq[n] = m.id;
 
+      // Lampu: sein berkedip di sisi belokan, rem menyala saat melambat atau
+      // berhenti di jalan. Sisi kiri truk adalah -Z lokal (truk menghadap +X).
+      const lit = m.phase === 'in' || m.phase === 'out' || m.phase === 'hold';
+      if (lit && m.signal !== 0 && blink) {
+        const side = m.signal > 0 ? -1.25 : 1.25;
+        for (const lx of [4.2, -10.9]) {
+          lamp.makeTranslation(lx, 1.15, side);
+          sig.multiplyMatrices(m4, lamp);
+          signalRef.current?.setMatrixAt(ns++, sig);
+        }
+      }
+      if (lit && (m.braking || m.phase === 'hold')) {
+        for (const side of [-1.05, 1.05]) {
+          lamp.makeTranslation(-10.95, 1.0, side);
+          sig.multiplyMatrices(m4, lamp);
+          brakeRef.current?.setMatrixAt(nb++, sig);
+        }
+      }
+
       // Bongkar (R) datang bermuatan dan kosong begitu spreader mengangkatnya;
       // ambil (D) datang kosong dan bermuatan begitu spreader melepasnya.
       const loaded = trip.flow === 'R' ? !job?.lifted : !!job?.placed;
@@ -455,6 +676,14 @@ function Fleet({ graph, find, blocks }: {
     if (loadRef.current) {
       loadRef.current.count = nl;
       loadRef.current.instanceMatrix.needsUpdate = true;
+    }
+    for (const [ref, count] of [
+      [signalRef, ns],
+      [brakeRef, nb],
+    ] as const) {
+      if (!ref.current) continue;
+      ref.current.count = count;
+      ref.current.instanceMatrix.needsUpdate = true;
     }
 
     for (const id of done) {
@@ -499,6 +728,13 @@ function Fleet({ graph, find, blocks }: {
       </instancedMesh>
       <instancedMesh ref={loadRef} args={[load, undefined, CAP]} count={0} frustumCulled={false}>
         <meshPhongMaterial color="#c9762f" shininess={20} />
+      </instancedMesh>
+      {/* Lampu sein dan rem: tanpa pencahayaan supaya tampak menyala. */}
+      <instancedMesh ref={signalRef} args={[lampGeo, undefined, CAP * 2]} count={0} frustumCulled={false}>
+        <meshBasicMaterial color="#ffa21a" />
+      </instancedMesh>
+      <instancedMesh ref={brakeRef} args={[lampGeo, undefined, CAP * 2]} count={0} frustumCulled={false}>
+        <meshBasicMaterial color="#ff2a2a" />
       </instancedMesh>
     </>
   );
@@ -598,6 +834,7 @@ export function Traffic() {
   return (
     <>
       {showNetwork && <NetworkOverlay graph={graph} />}
+      <GateBarriers graph={graph} />
       <RouteTrail />
       <Suspense fallback={null}>
         <Fleet graph={graph} find={find} blocks={data.blocks} />

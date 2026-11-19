@@ -7,7 +7,11 @@
  * yang persis sama, jadi tidak ada dua definisi yang bisa berselisih.
  */
 
-export type TripEventKind = 'GATE_IN' | 'HANDLED' | 'GATE_OUT';
+/**
+ * SHIFT = relokasi di dalam blok: RTG memindah kontainer dari slotnya ke
+ * `position`, tanpa truk. Wajib membawa posisi tujuan.
+ */
+export type TripEventKind = 'GATE_IN' | 'HANDLED' | 'GATE_OUT' | 'SHIFT';
 
 /** Posisi di lapangan, seperti kolom YARD_ROWTIER: slot ganjil, row dan tier 1-based. */
 export type YardPosition = { block: string; slot: number; row: number; tier: number };
@@ -61,6 +65,12 @@ const KIND_ALIASES: Record<string, TripEventKind> = {
   gateout: 'GATE_OUT',
   gato: 'GATE_OUT',
   out: 'GATE_OUT',
+  shift: 'SHIFT',
+  shifting: 'SHIFT',
+  relocate: 'SHIFT',
+  relocation: 'SHIFT',
+  move: 'SHIFT',
+  pindah: 'SHIFT',
 };
 
 /**

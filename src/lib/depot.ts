@@ -710,6 +710,62 @@ type GateRow = {
   GATO_DT: Date | null;
 };
 
+const toTrip = (r: GateRow): GateTrip => {
+  const iso = (d: Date | null) => (d ? d.toISOString() : null);
+  return {
+    jobNo: r.JOB_NO ?? '',
+    ctrNo: r.CTR_NO ?? '',
+    truckNo: r.TRUCK_NO ?? '',
+    flow: r.RECEIV_DELIV?.toUpperCase() === 'D' ? 'D' : 'R',
+    gateInNo: r.GATI_NO,
+    gateOutNo: r.GATO_NO,
+    gateIn: iso(r.GATI_DT),
+    handled: iso(r.STACK_ON_YARD ?? r.STACK_ON_TRK),
+    gateOut: iso(r.GATO_DT),
+  };
+};
+
+/**
+ * Semua perjalanan yang GATE IN pada satu tanggal (zona waktu server
+ * database), urut jam — untuk memutar ulang satu hari penuh.
+ *
+ * Tanggal dimasukkan ke SQL sebagai literal, jadi bentuknya diperiksa ketat
+ * lebih dulu: hanya YYYY-MM-DD yang lolos.
+ */
+export async function readGateDay(day: string, limit = 500): Promise<GateTrip[]> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error('Tanggal harus berbentuk YYYY-MM-DD.');
+  const n = Math.max(1, Math.min(2000, Math.floor(limit)));
+  const rows = await query<GateRow>(
+    'gate_hist hari',
+    `SELECT * FROM (
+       SELECT TRIM(job_no) AS job_no, TRIM(ctr_no) AS ctr_no, TRIM(truck_no) AS truck_no,
+              TRIM(receiv_deliv) AS receiv_deliv, gati_no, gato_no,
+              gati_dt, stack_on_yard, stack_on_trk, gato_dt
+         FROM gate_hist
+        WHERE gati_dt >= TO_DATE('${day}', 'YYYY-MM-DD')
+          AND gati_dt <  TO_DATE('${day}', 'YYYY-MM-DD') + 1
+        ORDER BY gati_dt ASC)
+      WHERE ROWNUM <= ${n}`,
+  );
+  return rows.map(toTrip);
+}
+
+/** Hari-hari yang punya gate in, terbaru lebih dulu, dengan jumlah perjalanannya. */
+export async function readGateDays(limit = 30): Promise<{ day: string; trips: number }[]> {
+  const n = Math.max(1, Math.min(365, Math.floor(limit)));
+  const rows = await query<{ DAY: string; N: number }>(
+    'gate_hist hari aktif',
+    `SELECT * FROM (
+       SELECT TO_CHAR(TRUNC(gati_dt), 'YYYY-MM-DD') AS day, COUNT(*) AS n
+         FROM gate_hist
+        WHERE gati_dt IS NOT NULL
+        GROUP BY TRUNC(gati_dt)
+        ORDER BY TRUNC(gati_dt) DESC)
+      WHERE ROWNUM <= ${n}`,
+  );
+  return rows.map((r) => ({ day: r.DAY, trips: Number(r.N) }));
+}
+
 export async function readGateTrips(limit: number, openOnly = false): Promise<GateTrip[]> {
   const n = Math.max(1, Math.min(200, Math.floor(limit) || 20));
   // openOnly: perjalanan yang sudah gate in tapi belum gate out — truk yang
@@ -726,20 +782,7 @@ export async function readGateTrips(limit: number, openOnly = false): Promise<Ga
         ORDER BY gati_dt DESC)
       WHERE ROWNUM <= ${n}`,
   );
-  const iso = (d: Date | null) => (d ? d.toISOString() : null);
-  return rows.map((r) => ({
-    jobNo: r.JOB_NO ?? '',
-    ctrNo: r.CTR_NO ?? '',
-    truckNo: r.TRUCK_NO ?? '',
-    flow: r.RECEIV_DELIV?.toUpperCase() === 'D' ? 'D' : 'R',
-    gateInNo: r.GATI_NO,
-    gateOutNo: r.GATO_NO,
-    gateIn: iso(r.GATI_DT),
-    // Untuk delivery kolom yang terisi bisa STACK_ON_TRK — kontainer diangkat
-    // ke atas truk, bukan ditumpuk.
-    handled: iso(r.STACK_ON_YARD ?? r.STACK_ON_TRK),
-    gateOut: iso(r.GATO_DT),
-  }));
+  return rows.map(toTrip);
 }
 
 /**
@@ -759,4 +802,60 @@ export async function readContainer(no: string): Promise<YardContainer | null> {
   );
   const r = rows[0];
   return r ? toContainer(r, r.YARD_BLOCK?.trim() ?? '') : null;
+}
+
+// --- master livery (YARD_LIVERY + YARD_LIVERY_MAP) ---------------------------
+
+type LiveryRow = {
+  LIVERY_CODE: string;
+  BRAND_NAME: string;
+  MODEL_CODE: string;
+  BODY_COLOR: string;
+  TEXT_COLOR: string;
+  BRAND_TEXT: string | null;
+  LOGO_FILE: string | null;
+  LOGO_POS: string;
+  LOGO_SCALE: number;
+};
+type LiveryMapRow = { MATCH_TYPE: string; MATCH_VALUE: string; CTR_KIND: string; LIVERY_CODE: string; PRIORITY: number };
+
+/**
+ * Livery aktif dari master. Hanya membaca. Melempar kalau tabelnya belum ada —
+ * route-nya yang memutuskan memakai cadangan bawaan.
+ */
+export async function readLiveries(): Promise<import('./livery').LiverySet> {
+  const [liv, map] = await Promise.all([
+    query<LiveryRow>(
+      'livery',
+      `SELECT livery_code, brand_name, model_code, body_color, text_color, brand_text,
+              logo_file, logo_pos, logo_scale
+         FROM yard_livery WHERE active_flag = 'Y'`,
+    ),
+    query<LiveryMapRow>(
+      'livery_map',
+      `SELECT match_type, match_value, ctr_kind, livery_code, priority
+         FROM yard_livery_map WHERE active_flag = 'Y'`,
+    ),
+  ]);
+  return {
+    source: 'db',
+    liveries: liv.map((r) => ({
+      code: r.LIVERY_CODE.trim(),
+      brand: r.BRAND_NAME,
+      model: r.MODEL_CODE.trim() as 'GP_CORRUGATED' | 'REEFER_PANEL' | 'TANK',
+      bodyColor: r.BODY_COLOR.trim(),
+      textColor: r.TEXT_COLOR.trim(),
+      brandText: r.BRAND_TEXT?.trim() || null,
+      logoFile: r.LOGO_FILE?.trim() || null,
+      logoPos: r.LOGO_POS.trim() as 'LEFT' | 'RIGHT' | 'CENTER' | 'NONE',
+      logoScale: Number(r.LOGO_SCALE),
+    })),
+    rules: map.map((r) => ({
+      type: r.MATCH_TYPE.trim() as 'PREFIX' | 'AGENT' | 'DEFAULT',
+      value: r.MATCH_VALUE.trim().toUpperCase(),
+      kind: r.CTR_KIND.trim() as 'GP' | 'REEFER' | 'TANK' | 'ANY',
+      livery: r.LIVERY_CODE.trim(),
+      priority: Number(r.PRIORITY),
+    })),
+  };
 }

@@ -1,5 +1,6 @@
-import { APRON, LANE, PITCH, RTG, rtgAssetScale, rtgSpanScale } from './constants';
+import { APRON, LANE, PITCH, RTG, RTG_CLEARANCE, rtgAssetScale, rtgSpanScale } from './constants';
 import type { LayoutEquipment } from './layout';
+import { laneSide } from './yard';
 import { mulberry32 } from './random';
 import type { YardBlock } from './types';
 
@@ -11,6 +12,47 @@ import type { YardBlock } from './types';
  * mengisi tata letak awal. Karena itu keluarannya daftar `LayoutEquipment`
  * datar yang bisa disunting, bukan langsung matriks instance.
  */
+
+/** Semua jenis RTG (alat yang mengangkangi blok). */
+export const RTG_KINDS: ReadonlySet<string> = new Set(['rtg', 'rtgAsset', 'rtgDetail', 'rtgDetail2']);
+
+type BlockLike = { originX: number; originZ: number; slots: number; rows: number; rot?: number; truckLane?: 'L' | 'R' };
+
+/**
+ * Sumbu portal RTG untuk sebuah blok: digeser RTG.offsetZ ke SISI LAJUR TRUK
+ * (konfigurasi "6+1"). Semua jenis RTG berrel di ±(lebar/2 + RTG_CLEARANCE)
+ * dari sumbunya, jadi dengan geseran ini rel dekat jatuh di luar lajur
+ * layanan dan truk yang berhenti berada DI DALAM kaki RTG.
+ */
+export function rtgLaneZ(b: BlockLike): number {
+  return b.originZ + (b.rows * PITCH.row) / 2 + laneSide(b) * RTG.offsetZ;
+}
+
+/**
+ * Apakah RTG bersumbu di `z` menaungi lajur layanan blok ini tanpa rel jauhnya
+ * menabrak tumpukan. Geseran sumbu ke sisi lajur (meter) harus di antara:
+ * - minimal: rel dekat di luar tepi lajur layanan (+0,3 m ruang roda),
+ * - maksimal: rel jauh masih di luar tepi blok seberang (−0,3 m).
+ */
+export function rtgCoversLane(b: BlockLike, z: number): boolean {
+  const off = (z - (b.originZ + (b.rows * PITCH.row) / 2)) * laneSide(b);
+  return off >= LANE.service.to + 0.3 - RTG_CLEARANCE && off <= RTG_CLEARANCE - 0.3;
+}
+
+/**
+ * Jepret sumbu RTG ke sisi lajur blok yang sedang ditunjuk (blok tanpa
+ * rotasi, kursor di sekitar badannya). Di luar itu z dibiarkan.
+ */
+export function snapRtgToLane(blocks: readonly BlockLike[], x: number, z: number): number {
+  for (const b of blocks) {
+    if (Math.abs(b.rot ?? 0) > 1e-3) continue;
+    const length = b.slots * PITCH.teu;
+    const width = b.rows * PITCH.row;
+    const cz = b.originZ + width / 2;
+    if (x >= b.originX - 8 && x <= b.originX + length + 8 && Math.abs(z - cz) <= width / 2 + 9) return rtgLaneZ(b);
+  }
+  return z;
+}
 
 /** Lajur tempat truk boleh berdiri, diukur dari tepi blok. */
 const TRUCK_LANES = [
@@ -41,7 +83,7 @@ export function generateEquipment(
       id: `rtg-${b.id}`,
       kind: 'rtg',
       x: b.originX + Math.min(bay, b.slots - 1) * PITCH.teu,
-      z: b.originZ + width / 2 + RTG.offsetZ,
+      z: rtgLaneZ(b),
       ry: 0,
     });
 

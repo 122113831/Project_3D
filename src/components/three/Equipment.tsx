@@ -17,6 +17,8 @@ import {
   type ModelPart,
 } from '@/lib/containerModel';
 import { generateEquipment, rtgAssetScaleAt, rtgScaleAt } from '@/lib/equipment';
+import { RTG_DETAIL, rtgDetailModel, rtgDetailRailZAt } from '@/lib/rtgDetail';
+import { rtgDetail2Model, setRtgDetail2Night } from '@/lib/rtgDetail2';
 import {
   createChassisGeometry,
   createChassisLoadGeometry,
@@ -130,6 +132,42 @@ useGLTF.preload(TRUCK_MODEL_URL, false, false);
  * Ketiganya dimuat lewat satu komponen karena perlakuannya sama persis: skala
  * dan warna asli, diturunkan ke tanah, di-instance per material.
  */
+/**
+ * RTG detail yang diam: rangka (dibangun per lebar blok), trolley + kabin di
+ * tengah bentang, dan spreader kosong menggantung pada tinggi jelajah — posisi
+ * yang sama dengan awal animasi RtgWorks, jadi tidak melompat saat mulai kerja.
+ * Jumlahnya hanya beberapa unit, jadi mesh biasa (tanpa instancing) cukup.
+ */
+function RtgDetailProps({ items }: { items: (Placement & { railZ: number; variant: 1 | 2 })[] }) {
+  // Lampu sorot RTG detail 2 ikut mode malam (juga yang sedang bekerja di
+  // RtgWorks — materialnya sama).
+  const night = useYard((s) => s.options.night);
+  const invalidate = useThree((s) => s.invalidate);
+  useLayoutEffect(() => {
+    setRtgDetail2Night(night);
+    invalidate();
+  }, [night, invalidate]);
+  return (
+    <>
+      {items.map((it, i) => {
+        const m = (it.variant === 2 ? rtgDetail2Model : rtgDetailModel)(it.railZ);
+        return (
+          <group key={i} position={[it.x, 0, it.z]} rotation-y={it.ry}>
+            {[...m.frame, ...m.trolley, ...m.ropes].map((p) => (
+              <mesh key={p.name} geometry={p.geometry} material={p.material} dispose={null} />
+            ))}
+            <group position-y={RTG_DETAIL.restUnder}>
+              {m.spreader.map((p) => (
+                <mesh key={p.name} geometry={p.geometry} material={p.material} dispose={null} />
+              ))}
+            </group>
+          </group>
+        );
+      })}
+    </>
+  );
+}
+
 function PropAsset({
   url,
   items,
@@ -164,6 +202,8 @@ export function Equipment() {
   // RTG yang sedang bekerja digambar RtgWorks dengan transform per frame;
   // di sini ia dikeluarkan supaya tidak tergambar dua kali.
   const busyRtg = useTraffic((s) => s.busyRtg);
+  // RTG yang selesai bekerja berdiri di bay terakhirnya (lihat RtgWorks).
+  const rtgPark = useTraffic((s) => s.rtgPark);
 
   const geo = useMemo(
     () => ({
@@ -215,6 +255,7 @@ export function Equipment() {
     const lampList: Placement[] = [];
     const itvList: Placement[] = [];
     const rtgAssetList: Placement[] = [];
+    const rtgDetailList: (Placement & { railZ: number; variant: 1 | 2 })[] = [];
     const stsList: Placement[] = [];
     // Rangka gate sama untuk masuk dan keluar; yang membedakan cuma warna papan
     // namanya, jadi rangkanya satu daftar dan papan namanya dua.
@@ -225,8 +266,10 @@ export function Equipment() {
     const gateHalfIn: Placement[] = [];
     const gateHalfOut: Placement[] = [];
 
-    for (const it of items) {
-      if ((it.kind === 'rtg' || it.kind === 'rtgAsset') && busyRtg.includes(it.id)) continue;
+    for (const raw of items) {
+      if ((raw.kind === 'rtg' || raw.kind === 'rtgAsset' || raw.kind === 'rtgDetail' || raw.kind === 'rtgDetail2') && busyRtg.includes(raw.id)) continue;
+      const parked = rtgPark[raw.id];
+      const it = parked !== undefined ? { ...raw, x: parked } : raw;
       if (it.kind === 'rtg') {
         // Bentang portal diambil dari blok terdekat, jadi RTG yang digeser ke
         // blok lain langsung menyesuaikan lebarnya sendiri.
@@ -268,6 +311,16 @@ export function Equipment() {
           sy: s,
           sz: s,
         });
+      } else if (it.kind === 'rtgDetail' || it.kind === 'rtgDetail2') {
+        // Bentang dari blok terdekat, seperti RTG lain.
+        rtgDetailList.push({
+          x: it.x,
+          y: 0,
+          z: it.z,
+          ry: it.ry,
+          railZ: rtgDetailRailZAt(blocks, it.z),
+          variant: it.kind === 'rtgDetail2' ? 2 : 1,
+        });
       } else if (it.kind === 'sts') {
         stsList.push({ x: it.x, y: 0, z: it.z, ry: it.ry });
       } else if (it.kind === 'gate') {
@@ -294,6 +347,7 @@ export function Equipment() {
       loadedList,
       itvList,
       rtgAssetList,
+      rtgDetailList,
       stsList,
       gateList,
       gateMidList,
@@ -302,7 +356,7 @@ export function Equipment() {
       gateHalfIn,
       gateHalfOut,
     };
-  }, [data, layoutEquipment, busyRtg]);
+  }, [data, layoutEquipment, busyRtg, rtgPark]);
 
   return (
     <group>
@@ -351,6 +405,7 @@ export function Equipment() {
       <Suspense fallback={null}>
         <PropAsset url={STS_MODEL_URL} items={placement.stsList} build={craneModelFor} />
       </Suspense>
+      <RtgDetailProps items={placement.rtgDetailList} />
     </group>
   );
 }

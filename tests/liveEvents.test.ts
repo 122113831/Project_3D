@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeEvent, tripId } from '@/lib/liveEvents';
 
+describe('normalizeEvent — relokasi', () => {
+  it('event shift membawa posisi tujuan', () => {
+    const e = normalizeEvent({ event: 'relocate', ctrNo: 'abcu1234567', block: 'a', slot: 5, row: 2, tier: 3 });
+    expect(e).toMatchObject({ kind: 'SHIFT', ctrNo: 'ABCU1234567', position: { block: 'A', slot: 5, row: 2, tier: 3 } });
+  });
+});
+
 describe('normalizeEvent — bentuk pesan broker', () => {
   it('pesan ringkas dengan event eksplisit', () => {
     const e = normalizeEvent({ event: 'gate_in', jobNo: '26003277', ctrNo: 'pask3928749', truckNo: 'bk0394kk', flow: 'R', gateNo: 1 });

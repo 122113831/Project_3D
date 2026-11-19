@@ -136,6 +136,7 @@ function BlockProps({ block }: { block: LayoutBlock }) {
           persistBlockPlacement(id);
         }}
       />
+      <BlockRoad block={block} />
       <div className="mt-1 text-[10px] text-slate-500">
         {(block.slots * PITCH.teu).toFixed(1)} x {(block.rows * PITCH.row).toFixed(1)} m ·{' '}
         {block.slots * block.rows * block.tiers} slot
@@ -146,6 +147,43 @@ function BlockProps({ block }: { block: LayoutBlock }) {
         (Shift+R sebaliknya). Posisi dan sudut tersimpan ke CORE_YARD_BLOCK.
       </div>
     </>
+  );
+}
+
+/**
+ * Jalan bawaan blok: lorong dua arah yang dulu selalu ikut tergambar bersama
+ * blok. Blok baru tidak punya; blok lama bisa dilepas jalannya — diganti ubin
+ * lurus berdiri sendiri di garis yang sama, sehingga rute truk tidak putus dan
+ * jalannya bisa disunting seperti ubin lain.
+ */
+function BlockRoad({ block }: { block: LayoutBlock }) {
+  const detach = useEditor((s) => s.detachBlockRoad);
+  const setNote = useEditor((s) => s.setNote);
+  const own = block.ownRoad !== false;
+  return (
+    <div className="mt-1.5 rounded border border-white/10 px-2 py-1.5 text-[11px] text-slate-300">
+      <div className="flex items-center justify-between">
+        <span>Jalan bawaan blok</span>
+        <span className={own ? 'text-sky-300' : 'text-slate-500'}>{own ? 'ada' : 'tidak — ubin terpisah'}</span>
+      </div>
+      {own ? (
+        <button
+          type="button"
+          onClick={() => {
+            const n = detach(block.id);
+            setNote(`Jalan blok ${block.id} diganti ${n} ubin jalan yang berdiri sendiri.`);
+          }}
+          className="mt-1 w-full rounded border border-white/15 py-1 text-[11px] text-slate-200 hover:border-white/30"
+        >
+          Ganti dengan ubin jalan
+        </button>
+      ) : (
+        <div className="mt-0.5 text-[10px] leading-relaxed text-slate-500">
+          Taruh ubin jalan (atau pakai Sambung jalan) di sepanjang lorong supaya truk bisa
+          berhenti di bay blok ini.
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -164,6 +164,21 @@ export async function fetchGateTrips(limit: number, openOnly = false): Promise<G
   return json as GateTrip[];
 }
 
+/** Semua perjalanan satu tanggal (YYYY-MM-DD), urut jam. */
+export async function fetchGateDay(day: string): Promise<GateTrip[]> {
+  const res = await fetch(`/api/yard/trips?day=${encodeURIComponent(day)}`, { cache: 'no-store' });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.error || `Gagal membaca GATE_HIST (HTTP ${res.status}).`);
+  return json as GateTrip[];
+}
+
+/** Hari-hari yang punya gate in, terbaru lebih dulu. */
+export async function fetchGateDays(): Promise<{ day: string; trips: number }[]> {
+  const res = await fetch('/api/yard/trips?days=1', { cache: 'no-store' });
+  if (!res.ok) return [];
+  return (await res.json()) as { day: string; trips: number }[];
+}
+
 /** Satu kontainer beserta posisinya sekarang; null kalau tidak di lapangan. */
 export async function fetchContainer(no: string): Promise<YardContainer | null> {
   const res = await fetch(`/api/yard/container?no=${encodeURIComponent(no)}`, { cache: 'no-store' });

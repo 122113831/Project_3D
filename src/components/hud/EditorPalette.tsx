@@ -86,6 +86,16 @@ export function EditorPalette() {
         >
           Kunci slot
         </button>
+        <button
+          type="button"
+          onClick={() => setTool(tool === 'connect' ? 'select' : 'connect')}
+          className={`rounded-md px-3 py-1 text-[12px] transition-colors ${
+            tool === 'connect' ? 'bg-sky-400/25 text-slate-50' : 'text-slate-400 hover:text-slate-100'
+          }`}
+          title="Klik titik awal lalu titik akhir — ubin jalan dirangkai otomatis menghindari blok"
+        >
+          Sambung jalan
+        </button>
         {/* Tier yang dibidik: klik di lapangan memilih slot/row pada bidang
             setinggi tier ini. Tier 1 = kunci seluruh kolom. */}
         {tool === 'slots' && (
@@ -125,7 +135,13 @@ export function EditorPalette() {
       {/* Baris bantuan — tanpa ini tidak ada yang memberi tahu bahwa KARTU-nya
           yang diklik, bukan tab-nya, dan bahwa memutar pakai tombol R. */}
       <div className='pointer-events-none text-[10px] text-slate-400'>
-        {tool === 'slots' ? (
+        {tool === 'connect' ? (
+          <>
+            Klik <b>titik awal</b> lalu <b>titik akhir</b> (aspal kosong atau jalan yang sudah ada):
+            ubin dirangkai lewat kisi, memutari blok, dan simpang dibuat otomatis. Esc membatalkan.
+            {note && <span className="mt-1 block rounded bg-slate-950/70 px-2 py-0.5 text-sky-300">{note}</span>}
+          </>
+        ) : tool === 'slots' ? (
           <>
             Pilih tier, lalu klik petak di lapangan: slot/row itu dikunci <b>dari tier {lockTier} sampai
             teratas</b>. Klik sel merah untuk membukanya lagi. Abu-abu = sudah berisi kontainer.

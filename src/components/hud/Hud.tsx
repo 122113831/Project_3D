@@ -6,6 +6,7 @@ import { ControlPanel } from './ControlPanel';
 import { EditorPanel } from './EditorPanel';
 import { EditorPalette } from './EditorPalette';
 import { InspectView } from './InspectView';
+import { KioskView } from './KioskView';
 import { LivePanel } from './LivePanel';
 import { Minimap } from './Minimap';
 import { NewBlockDialog } from './NewBlockDialog';
@@ -31,6 +32,9 @@ import { TopBar } from './TopBar';
 export function Hud() {
   const selected = useYard((s) => s.selected);
   const editing = useEditor((s) => s.open);
+  // Mode layar monitor menggantikan seluruh HUD (lihat KioskView).
+  const kiosk = useYard((s) => s.options.kiosk);
+  if (kiosk && !editing) return <KioskView />;
 
   // Di editor tidak ada layar inspeksi: kontainer sedang disembunyikan, dan
   // klik di lapangan berarti memilih objek atau mengunci slot. Dijaga di sini

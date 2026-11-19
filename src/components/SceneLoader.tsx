@@ -28,6 +28,16 @@ export function SceneLoader() {
     void load();
   }, [load]);
 
+  // ?kiosk=1 membuka mode layar monitor langsung — untuk TV ruang kontrol yang
+  // menyalakan peramban sendiri tanpa ada yang mengklik.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    if (q.get('kiosk') === '1') {
+      useYard.getState().setOption('kiosk', true);
+      if (q.get('sky') !== '0') useYard.getState().setOption('autoSky', true);
+    }
+  }, []);
+
   return (
     <div className="absolute inset-0">
       <YardScene />

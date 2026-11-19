@@ -121,15 +121,25 @@ function build(blocks: readonly YardBlock[], roads: readonly LayoutRoad[]) {
     // berakhir di tepi terjauh, bukan menempel di kaki blok tempat truk
     // sebenarnya berhenti.
     const side = laneSide(b);
-    const [lcx, lcz] = aroundBlock(b, 0, (side * (width + LANE.width)) / 2);
+    // Blok tanpa jalan bawaan hanya membawa lajur layanan dan rel RTG-nya —
+    // 8,2 m pertama dari tepi blok. Jalan dua arah di luarnya ubin terpisah.
+    // Tekstur lorong tersusun dari tepi blok (v = 1) ke luar, jadi cukup
+    // memotong rentang v-nya, bukan membuat tekstur kedua.
+    const stripW = b.ownRoad === false ? LANE.road.from : LANE.width;
+    const [lcx, lcz] = aroundBlock(b, 0, (side * (width + stripW)) / 2);
     const lane = ground(
       length,
-      LANE.width,
+      stripW,
       lcx,
       0.015,
       lcz,
       rot + (side < 0 ? Math.PI : 0),
     );
+    if (stripW !== LANE.width) {
+      const uv = lane.g.attributes.uv as THREE.BufferAttribute;
+      const k = stripW / LANE.width;
+      for (let i = 0; i < uv.count; i++) uv.setY(i, 1 - (1 - uv.getY(i)) * k);
+    }
     scaleUv(lane.g, length / LANE.tile, 1);
     lanes.push(lane.place());
   }

@@ -15,9 +15,11 @@ import type {
   ContainerStatus,
   TypeFilter,
 } from '@/lib/types';
-import { useYard } from '@/store/useYard';
+import { pickRelocation } from '@/lib/relocate';
+import { useYard, type WeatherMode } from '@/store/useYard';
 import { useTraffic } from '@/store/useTraffic';
 import { useYardView } from '@/store/useYardView';
+import { DayReplay } from './DayReplay';
 import { Chip, Panel, Section, SubLabel, Toggle } from './ui';
 
 const COLOR_MODES: ColorMode[] = ['line', 'status', 'size', 'tier'];
@@ -224,6 +226,14 @@ export function ControlPanel() {
         <Toggle checked={options.detail} onChange={(v) => setOption('detail', v)}>
           Model kontainer detail <span className="text-slate-500">(saat dekat)</span>
         </Toggle>
+        {options.detail && (
+          <Toggle
+            checked={options.containerStyle === 'real'}
+            onChange={(v) => setOption('containerStyle', v ? 'real' : 'asset')}
+          >
+            Kontainer realistis <span className="text-slate-500">(GP Maersk + reefer · matikan = aset lama)</span>
+          </Toggle>
+        )}
         <Toggle checked={options.rtg} onChange={(v) => setOption('rtg', v)}>
           RTG crane
         </Toggle>
@@ -248,15 +258,39 @@ export function ControlPanel() {
         <Toggle checked={options.tour} onChange={(v) => setOption('tour', v)}>
           Mode tur <span className="text-slate-500">(kamera berkeliling)</span>
         </Toggle>
-        <Toggle checked={options.night} onChange={(v) => setOption('night', v)}>
-          Malam <span className="text-slate-500">(lampu tiang menyala)</span>
+        <Toggle checked={options.kiosk} onChange={(v) => setOption('kiosk', v)}>
+          Layar monitor <span className="text-slate-500">(kiosk · Esc keluar)</span>
         </Toggle>
+        <Toggle checked={options.autoSky} onChange={(v) => setOption('autoSky', v)}>
+          Ikuti jam <span className="text-slate-500">(pagi · senja · malam)</span>
+        </Toggle>
+        {/* Dengan "Ikuti jam", malam ditentukan matahari — saklarnya dikunci. */}
+        <div className={options.autoSky ? 'pointer-events-none opacity-40' : ''}>
+          <Toggle checked={options.night} onChange={(v) => setOption('night', v)}>
+            Malam <span className="text-slate-500">(lampu tiang menyala)</span>
+          </Toggle>
+        </div>
+        <SubLabel>Cuaca</SubLabel>
+        <div className="grid grid-cols-4 gap-1">
+          {WEATHER.map((w) => (
+            <Chip key={w.v} active={options.weather === w.v} onClick={() => setOption('weather', w.v)} title={w.title}>
+              {w.label}
+            </Chip>
+          ))}
+        </div>
       </Section>
     </Panel>
   );
 }
 
 const SPEEDS = [1, 2, 4, 8];
+
+const WEATHER: { v: WeatherMode; label: string; title: string }[] = [
+  { v: 'off', label: 'Cerah', title: 'Tanpa efek cuaca' },
+  { v: 'live', label: 'Langsung', title: 'Cuaca sekarang di lokasi depot (Open-Meteo, tiap 10 menit)' },
+  { v: 'rain', label: 'Hujan', title: 'Paksa hujan — untuk demo' },
+  { v: 'fog', label: 'Kabut', title: 'Paksa kabut tebal — untuk demo' },
+];
 
 /**
  * Kendali lalu lintas truk gate.
@@ -277,6 +311,32 @@ function TrafficSection() {
   const note = useTraffic((s) => s.note);
   const diag = useTraffic((s) => s.diag);
   const skipped = useTraffic((s) => s.skipped);
+  const followRtg = useTraffic((s) => s.followRtg);
+  const setFollowRtg = useTraffic((s) => s.setFollowRtg);
+  const rtgBusy = useTraffic((s) => s.busyRtg.length);
+
+  /**
+   * Relokasi contoh: satu kontainer teratas dipindah RTG ke tumpukan lain di
+   * blok yang sama — lewat pintu yang sama dengan kejadian SHIFT dari broker.
+   */
+  const demoShift = () => {
+    const data = useYard.getState().data;
+    const blocks = [...(data?.blocks ?? [])].sort(() => Math.random() - 0.5);
+    for (const b of blocks) {
+      const r = pickRelocation(b);
+      if (!r) continue;
+      useTraffic.getState().ingest({
+        kind: 'SHIFT',
+        jobNo: '',
+        ctrNo: r.c.no,
+        truckNo: '',
+        flow: 'R',
+        position: { block: b.id, slot: r.to.bay * 2 + 1, row: r.to.row + 1, tier: r.to.tier },
+      });
+      return;
+    }
+    useTraffic.setState({ note: 'Tidak ada relokasi yang sah di lapangan ini.' });
+  };
 
   const active = Object.keys(trips).length;
   const skippedList = Object.values(skipped);
@@ -304,6 +364,19 @@ function TrafficSection() {
             {v}×
           </Chip>
         ))}
+      </div>
+      <DayReplay />
+      <div className="mt-1.5 grid grid-cols-2 gap-1">
+        <Chip active={false} onClick={demoShift} title="RTG memindah satu kontainer ke tumpukan lain di blok yang sama">
+          Contoh relokasi
+        </Chip>
+        <Chip
+          active={followRtg}
+          onClick={() => setFollowRtg(!followRtg)}
+          title="Kamera mengikuti RTG yang sedang bekerja"
+        >
+          Ikuti RTG{rtgBusy ? ` · ${rtgBusy}` : ''}
+        </Chip>
       </div>
       <div className="mt-1.5">
         <Toggle checked={showNetwork} onChange={setShowNetwork}>

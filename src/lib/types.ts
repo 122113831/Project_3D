@@ -136,6 +136,11 @@ export type YardBlock = {
   containers: YardContainer[];
   /** Kolom slot yang dikunci editor; dari YARD_LAYOUT, bukan dari database TOS. */
   blocked?: BlockedCell[];
+  /**
+   * Blok membawa jalan dua arah di lorong sampingnya sendiri. false = jalan
+   * berdiri sendiri (ubin jalan), blok hanya punya lajur layanan. Kosong = true.
+   */
+  ownRoad?: boolean;
 };
 
 /** Shipping line yang benar-benar ada di data, bukan daftar tetap. */

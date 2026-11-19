@@ -9,6 +9,8 @@ import {
   type RoadKind,
 } from './constants';
 import { ITV_MODEL_URL, RTG_CRANE_MODEL_URL, STS_MODEL_URL } from './containerModel';
+import { RTG_DETAIL, rtgDetailModel, rtgDetailRailZ, type RtgDetailModel } from './rtgDetail';
+import { rtgDetail2Model } from './rtgDetail2';
 import {
   createChassisGeometry,
   createChassisLoadGeometry,
@@ -158,6 +160,18 @@ function rtgPreview() {
   return g;
 }
 
+/** Pratinjau RTG detail: model yang SAMA dengan lapangan, blok 6 row. */
+function rtgDetailPreview(model: (railZ: number) => RtgDetailModel = rtgDetailModel) {
+  const m = model(rtgDetailRailZ(6 * PITCH.row));
+  const g = new THREE.Group();
+  for (const p of [...m.frame, ...m.trolley, ...m.ropes]) g.add(new THREE.Mesh(p.geometry, p.material));
+  const sp = new THREE.Group();
+  sp.position.y = RTG_DETAIL.restUnder;
+  for (const p of m.spreader) sp.add(new THREE.Mesh(p.geometry, p.material));
+  g.add(sp);
+  return g;
+}
+
 function truckPreview(loaded: boolean) {
   const g = new THREE.Group();
   g.add(new THREE.Mesh(createChassisGeometry(), CHASSIS));
@@ -207,6 +221,22 @@ export const ASSET_ITEMS: AssetItem[] = [
     }),
   ),
 
+  {
+    id: 'rtg-detail',
+    category: 'equipment',
+    label: 'RTG detail (kuning)',
+    detail: 'Portal 25 m · prosedural · menyesuaikan lebar blok',
+    spec: { kind: 'equipment', equipment: 'rtgDetail' },
+    build: () => rtgDetailPreview(),
+  },
+  {
+    id: 'rtg-detail-2',
+    category: 'equipment',
+    label: 'RTG detail 2 (festoon)',
+    detail: 'Portal 25 m · festoon kabel · menyesuaikan lebar blok',
+    spec: { kind: 'equipment', equipment: 'rtgDetail2' },
+    build: () => rtgDetailPreview(rtgDetail2Model),
+  },
   {
     id: 'rtg-asset',
     category: 'equipment',

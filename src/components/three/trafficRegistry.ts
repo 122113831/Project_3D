@@ -33,6 +33,21 @@ export const routesVersion = () => routeVersion;
 /** Semua pose truk sekaligus — untuk minimap. */
 export const allTruckPoses = () => poses;
 
+// --- RTG yang bekerja -----------------------------------------------------------
+//
+// Posisi spreader tiap RTG yang sedang bekerja, ditulis RtgWorks tiap frame.
+// Dibaca kamera "Ikuti RTG"; alasan tinggal di luar store sama dengan pose truk.
+export type RtgPose = { x: number; y: number; z: number };
+const rtgPoses = new Map<string, RtgPose>();
+export const setRtgPose = (jobId: string, p: RtgPose) => {
+  rtgPoses.set(jobId, p);
+};
+export const dropRtgPose = (jobId: string) => {
+  rtgPoses.delete(jobId);
+};
+/** RTG pertama yang sedang bekerja, atau null. */
+export const anyRtgPose = (): RtgPose | null => rtgPoses.values().next().value ?? null;
+
 // --- kamera -------------------------------------------------------------------
 //
 // CameraRig menulis posisi kamera dan sasaran orbitnya tiap frame; minimap

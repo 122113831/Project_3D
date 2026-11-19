@@ -35,12 +35,20 @@ export type LayoutBlock = {
   slotStart: BlockSide;
   /** Kenaikan nomor slot tiap posisi; 2 mengikuti penomoran ganjil depot. */
   slotStep: number;
+  /**
+   * Jalan dua arah di lorong blok ikut digambar dan dipakai truk. Blok yang
+   * dibuat sejak jalan bisa berdiri sendiri bernilai false: jalannya ubin
+   * terpisah. Kosong = true, supaya tata letak lama tidak berubah.
+   */
+  ownRoad?: boolean;
 };
 
 /** Jenis alat yang bisa diletakkan, sekaligus daftar aset di palet editor. */
 export const EQUIPMENT_KINDS = [
   'rtg',
   'rtgAsset',
+  'rtgDetail',
+  'rtgDetail2',
   'truck',
   'itv',
   'sts',
@@ -54,6 +62,8 @@ export type EquipmentKind = (typeof EQUIPMENT_KINDS)[number];
 export const EQUIPMENT_LABEL: Record<EquipmentKind, string> = {
   rtg: 'RTG (prosedural)',
   rtgAsset: 'RTG crane',
+  rtgDetail: 'RTG detail (kuning)',
+  rtgDetail2: 'RTG detail 2 (festoon)',
   truck: 'Truk + chassis',
   itv: 'ITV',
   sts: 'STS crane',
@@ -81,6 +91,9 @@ export const EQUIPMENT_FOOTPRINT: Record<
   // lapangan. Angka di sini memakai skala blok 6 row yang lazim; sama seperti
   // RTG prosedural di atas, kotak ini memang hampiran.
   rtgAsset: { x: 15, z: 28, y: 27 },
+  // RTG detail dibangun per lebar blok; angka ini untuk blok 6 row.
+  rtgDetail: { x: 15, z: 27, y: 25 },
+  rtgDetail2: { x: 16, z: 29, y: 25 },
   truck: { x: 15.4, z: 2.6, y: 4.2 },
   itv: { x: 16.4, z: 3.2, y: 4 },
   sts: { x: 27, z: 113.8, y: 62 },
@@ -297,6 +310,8 @@ export function defaultBlock(x: number, z: number, id: string): LayoutBlock {
     rot: 0,
     truckLane: 'L',
     slotStart: 'L',
+    // Blok baru tidak membawa jalan: jalannya ubin yang ditaruh sendiri.
+    ownRoad: false,
   };
 }
 
@@ -344,6 +359,7 @@ export function applyLayout(data: YardData, layout: YardLayout | null): YardData
       truckLane: lb.truckLane ?? src?.truckLane ?? 'L',
       slotStart: lb.slotStart ?? src?.slotStart ?? 'L',
       containers,
+      ownRoad: lb.ownRoad ?? true,
       // Dirapikan di sini sekali, supaya semua yang menggambar atau menghitung
       // menerima daftar yang sudah pasti di dalam ukuran blok.
       //

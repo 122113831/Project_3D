@@ -3,8 +3,8 @@
 import { create } from 'zustand';
 import { ASSET_ITEMS, findItem } from '@/lib/editorAssets';
 import { ROAD, type RoadKind } from '@/lib/constants';
-import { snapRoad } from '@/lib/roadSnap';
-import { generateEquipment } from '@/lib/equipment';
+import { laneRoadTiles, snapRoad } from '@/lib/roadSnap';
+import { generateEquipment, RTG_KINDS, snapRtgToLane } from '@/lib/equipment';
 import {
   defaultBlock,
   emptyLayout,
@@ -19,6 +19,7 @@ import {
   type LayoutRoad,
   type YardLayout,
 } from '@/lib/layout';
+import { connectRoads } from '@/lib/connect';
 import { planGrowth, type ShiftPlan } from '@/lib/shift';
 import { pushRoadClear } from '@/lib/validate';
 import { normalizeBlocked, toggleBlocked } from '@/lib/slots';
@@ -35,7 +36,7 @@ import { useYard } from './useYard';
  * 'slots' = mengunci/membuka slot: kontainer disembunyikan, tiap sel blok
  * digambar sebagai kisi, dan klik pada sel mengunci kolomnya dari situ ke atas.
  */
-export type EditorTool = 'select' | 'place' | 'slots';
+export type EditorTool = 'select' | 'place' | 'slots' | 'connect';
 
 export type Selection =
   | { type: 'block'; id: string }
@@ -142,6 +143,13 @@ type EditorState = {
   toggleSlot: (blockId: string, bay: number, row: number, tier: number) => void;
   /** Membuka semua kunci di satu blok. */
   clearBlocked: (blockId: string) => void;
+  /** Titik awal alat Sambung jalan, menunggu klik kedua. */
+  connectFrom: { x: number; z: number } | null;
+  /**
+   * Klik alat Sambung jalan: klik pertama mencatat titik awal, klik kedua
+   * merangkai ubin di antaranya (lihat connect.ts) dalam satu catatan riwayat.
+   */
+  connectAt: (x: number, z: number) => void;
   /**
    * Tier yang sedang dibidik di modus 'slots'. Klik menentukan slot dan row
    * lewat bidang datar setinggi tier ini, jadi sel di tengah blok — yang dari
@@ -176,6 +184,11 @@ type EditorState = {
   setNote: (v: string | null) => void;
   /** Menyisipkan blok dari database ke tata letak, apa adanya. */
   adoptBlock: (b: LayoutBlock) => void;
+  /**
+   * Melepas jalan bawaan sebuah blok: jalannya diganti ubin lurus berdiri
+   * sendiri di garis yang sama. Mengembalikan jumlah ubin yang dibuat.
+   */
+  detachBlockRoad: (id: string) => number;
 };
 
 /**
@@ -294,6 +307,27 @@ export const useEditor = create<EditorState>((set, get) => ({
   revision: 0,
   past: [],
 
+  connectFrom: null,
+  connectAt: (x, z) => {
+    const from = get().connectFrom;
+    if (!from) {
+      set({ connectFrom: { x, z }, note: 'Titik awal dicatat — klik titik akhir.' });
+      return;
+    }
+    const l = get().layout;
+    if (!l) return;
+    const r = connectRoads(l.blocks, l.roads, from, { x, z }, () => newId('road'));
+    if (!r.ok) {
+      set({ connectFrom: null, note: r.reason });
+      return;
+    }
+    commit(set, (cur) => ({ ...cur, roads: r.roads }));
+    set({
+      connectFrom: null,
+      note: `Sambung jalan: ${r.added} ubin baru${r.changed ? `, ${r.changed} simpang diperbarui` : ''} (${r.cells} petak).`,
+    });
+  },
+
   lockTier: 1,
   setLockTier: (lockTier) => set({ lockTier: Math.max(1, Math.round(lockTier)) }),
 
@@ -303,7 +337,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (open) useYard.getState().select(null);
     set({ open, selected: open ? get().selected : null });
   },
-  setTool: (tool) => set({ tool, selected: tool === 'select' ? get().selected : null }),
+  setTool: (tool) => set({ tool, selected: tool === 'select' ? get().selected : null, connectFrom: null }),
   setAsset: (assetId) => set({ assetId, tool: 'place', selected: null }),
 
   place: (x, z) => {
@@ -429,11 +463,14 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   addEquipment: (kind, x, z, preset) => {
     if (!get().layout) return;
+    // RTG dijepret ke sisi lajur truk blok yang ditunjuk: truk yang berhenti
+    // harus berada di DALAM kakinya, bukan di jalur portalnya.
+    const blocks = get().layout?.blocks ?? [];
     const item: LayoutEquipment = {
       id: newId(kind),
       kind,
       x: snap(x),
-      z: snap(z),
+      z: RTG_KINDS.has(kind) ? snapRtgToLane(blocks, x, z) : snap(z),
       ry: 0,
       ...(kind === 'truck' ? { loaded: true } : {}),
       ...preset,
@@ -498,7 +535,9 @@ export const useEditor = create<EditorState>((set, get) => ({
         }
         return {
           ...l,
-          equipment: l.equipment.map((e) => (e.id === sel.id ? { ...e, x: nx, z: nz } : e)),
+          equipment: l.equipment.map((e) =>
+            e.id === sel.id ? { ...e, x: nx, z: RTG_KINDS.has(e.kind) ? snapRtgToLane(l.blocks, x, z) : nz } : e,
+          ),
         };
       },
       record,
@@ -582,11 +621,26 @@ export const useEditor = create<EditorState>((set, get) => ({
   // Blok yang baru dibuat di database harus IKUT masuk tata letak kalau ada:
   // applyLayout cuma menggambar blok yang terdaftar di tata letak, jadi tanpa
   // ini blok yang baru saja tersimpan justru tidak kelihatan.
+  // Blok baru dari database tidak membawa jalan bawaan (ownRoad: false):
+  // jalannya ubin terpisah yang ditaruh atau disambung sendiri.
   adoptBlock: (b) =>
     commit(set, (l) => ({
       ...l,
-      blocks: l.blocks.some((v) => v.id === b.id) ? l.blocks : [...l.blocks, b],
+      blocks: l.blocks.some((v) => v.id === b.id) ? l.blocks : [...l.blocks, { ...b, ownRoad: false }],
     })),
+
+  detachBlockRoad: (id) => {
+    const l = get().layout;
+    const blk = l?.blocks.find((v) => v.id === id);
+    if (!l || !blk || blk.ownRoad === false) return 0;
+    const tiles = laneRoadTiles(blk, () => newId('road'));
+    commit(set, (cur) => ({
+      ...cur,
+      roads: [...cur.roads, ...tiles],
+      blocks: cur.blocks.map((v) => (v.id === id ? { ...v, ownRoad: false } : v)),
+    }));
+    return tiles.length;
+  },
 
   importLayout: (json) => {
     try {

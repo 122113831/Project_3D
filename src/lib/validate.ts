@@ -1,4 +1,4 @@
-import { ROAD, ROAD_ARMS } from './constants';
+import { PITCH, ROAD, ROAD_ARMS } from './constants';
 import {
   blockSize,
   EQUIPMENT_FOOTPRINT,
@@ -7,6 +7,7 @@ import {
   type LayoutRoad,
 } from './layout';
 import { roadLen } from './roadSnap';
+import { RTG_KINDS, rtgCoversLane } from './equipment';
 
 /**
  * Pemeriksaan tata letak: hal-hal yang membuat lapangan tidak bisa dipakai
@@ -178,7 +179,7 @@ export function obbIntersects(a: Obb, b: Obb, shrink = 0.25): boolean {
 
 const GATE_KINDS = new Set(['gate', 'gateIn', 'gateOut']);
 /** RTG memang berdiri mengangkangi blok; itu bukan tabrakan. */
-const STRADDLES = new Set(['rtg', 'rtgAsset']);
+const STRADDLES = new Set(['rtg', 'rtgAsset', 'rtgDetail', 'rtgDetail2']);
 
 export function validateLayout(input: {
   blocks: readonly LayoutBlock[];
@@ -248,6 +249,32 @@ export function validateLayout(input: {
         break;
       }
     }
+  }
+
+  // RTG harus menaungi lajur truk bloknya: kalau tidak, truk yang berhenti
+  // di lajur layanan berdiri di jalur kaki/roda portal dan tertabrak saat RTG
+  // berjalan ke bay.
+  for (const e of equipment) {
+    if (!RTG_KINDS.has(e.kind)) continue;
+    let near: LayoutBlock | null = null;
+    let best = Infinity;
+    for (const b of blocks) {
+      const d = Math.abs(b.originZ + (b.rows * PITCH.row) / 2 - e.z);
+      if (d < best) {
+        best = d;
+        near = b;
+      }
+    }
+    if (!near || Math.abs(near.rot ?? 0) > 1e-3 || rtgCoversLane(near, e.z)) continue;
+    out.push({
+      id: `rtg-lane:${e.id}`,
+      level: 'warn',
+      text: `RTG blok ${near.id} tidak menaungi lajur truk — truk bisa tertabrak. Geser RTG (akan dijepret otomatis)`,
+      x: e.x,
+      z: e.z,
+      span: 40,
+      target: { type: 'equipment', id: e.id },
+    });
   }
 
   // Gate dan keterjangkauan — dari graf jalan.

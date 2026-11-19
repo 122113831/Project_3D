@@ -36,6 +36,8 @@ export type PerfSample = {
   dpr: number;
 };
 
+export type WeatherMode = 'off' | 'live' | 'rain' | 'fog';
+
 export type ViewOptions = {
   /** Shadow map dimatikan secara default — lihat README bagian performa. */
   shadows: boolean;
@@ -45,6 +47,11 @@ export type ViewOptions = {
   adaptive: boolean;
   /** Model GLB kontainer untuk blok di dekat kamera (lihat lodRegistry). */
   detail: boolean;
+  /**
+   * Model kontainer GP saat dekat: 'real' = kontainer ISO realistis (Maersk,
+   * prosedural, lihat realisticContainer.ts), 'asset' = aset GLB lama.
+   */
+  containerStyle: 'real' | 'asset';
   rtg: boolean;
   lamps: boolean;
   trucks: boolean;
@@ -56,6 +63,15 @@ export type ViewOptions = {
   tour: boolean;
   /** Pencahayaan malam, lampu tiang menyala. */
   night: boolean;
+  /** Matahari, langit, dan lampu tiang mengikuti jam komputer. Menimpa `night`. */
+  autoSky: boolean;
+  /**
+   * Cuaca: mati, langsung dari Open-Meteo (koordinat depot di server), atau
+   * hujan / kabut paksa untuk demo.
+   */
+  weather: WeatherMode;
+  /** Mode layar monitor (TV ruang kontrol): KPI besar, tanpa panel kendali. */
+  kiosk: boolean;
   /** Papan kapasitas di atas tiap blok: persen terisi dan sisa box. */
   blockInfo: boolean;
 };
@@ -73,6 +89,12 @@ type YardState = {
   colorMode: ColorMode;
   filter: YardFilter;
   selected: YardContainer | null;
+  /**
+   * Kontainer hasil pencarian: kamera terbang ke sana dan lapangan menandainya
+   * dengan kotak berdenyut, TANPA membuka layar inspeksi (yang menutupi
+   * separuh layar dan meredupkan lapangan — justru posisinya yang dicari).
+   */
+  located: YardContainer | null;
   /** Naik setiap kali user minta kamera terbang ke kontainer terpilih. */
   flyToken: number;
   /**
@@ -92,6 +114,8 @@ type YardState = {
   toggleType: (t: TypeFilter) => void;
   resetFilter: () => void;
   select: (c: YardContainer | null, fly?: boolean) => void;
+  /** Tandai & terbang ke kontainer hasil pencarian; null = hapus tanda. */
+  locate: (c: YardContainer | null) => void;
   setOption: <K extends keyof ViewOptions>(key: K, value: ViewOptions[K]) => void;
   setPerf: (p: PerfSample) => void;
   /**
@@ -122,6 +146,7 @@ export const useYard = create<YardState>((set, get) => ({
   colorMode: 'none',
   filter: EMPTY_FILTER,
   selected: null,
+  located: null,
   flyToken: 0,
   focus: null,
   options: {
@@ -129,6 +154,7 @@ export const useYard = create<YardState>((set, get) => ({
     labels: false,
     adaptive: true,
     detail: true,
+    containerStyle: 'real',
     rtg: true,
     lamps: true,
     trucks: true,
@@ -136,6 +162,9 @@ export const useYard = create<YardState>((set, get) => ({
     view2d: false,
     tour: false,
     night: false,
+    autoSky: false,
+    weather: 'off',
+    kiosk: false,
     blockInfo: true,
   },
   perf: { fps: 0, frameMs: 0, calls: 0, triangles: 0, programs: 0, renderer: '', dpr: 0 },
@@ -143,7 +172,7 @@ export const useYard = create<YardState>((set, get) => ({
   async load(opts) {
     const fill = opts?.fill ?? get().fill;
     const source = opts?.source ?? get().source;
-    set({ loading: true, error: null, fill, source, selected: null });
+    set({ loading: true, error: null, fill, source, selected: null, located: null });
     try {
       const url =
         source === 'demo' ? `/api/yard?source=demo&fill=${fill.toFixed(2)}` : '/api/yard';
@@ -171,6 +200,8 @@ export const useYard = create<YardState>((set, get) => ({
 
   select: (c, fly = false) =>
     set((s) => ({ selected: c, flyToken: fly ? s.flyToken + 1 : s.flyToken })),
+  locate: (c) =>
+    set((s) => ({ located: c, selected: null, flyToken: c ? s.flyToken + 1 : s.flyToken })),
   flyTo: (x, z, span = 60) =>
     set((s) => ({ focus: { x, z, span, token: (s.focus?.token ?? 0) + 1 } })),
 
@@ -226,6 +257,7 @@ export const useYard = create<YardState>((set, get) => ({
           },
         },
         selected: s.selected?.no.trim().toUpperCase() === key ? null : s.selected,
+        located: s.located?.no.trim().toUpperCase() === key ? null : s.located,
       };
     }),
 

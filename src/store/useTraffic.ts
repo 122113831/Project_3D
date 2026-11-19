@@ -2,8 +2,10 @@
 
 import { create } from 'zustand';
 import { tripId, type LiveEvent, type TripEventKind, type YardPosition } from '@/lib/liveEvents';
-import type { YardContainer } from '@/lib/types';
-import { fetchGateTrips, type GateTrip } from '@/lib/yardApi';
+import type { YardBlock, YardContainer } from '@/lib/types';
+import { scheduleDay } from '@/lib/dayReplay';
+import { fetchGateDay, fetchGateTrips, type GateTrip } from '@/lib/yardApi';
+import { useYard } from './useYard';
 
 export { tripId };
 export type { TripEventKind };
@@ -42,12 +44,15 @@ export type Trip = {
 };
 
 export type RtgJob = {
-  /** Sama dengan id perjalanannya. */
+  /** Sama dengan id perjalanannya; untuk relokasi `SHIFT|<nomor>|<waktu>`. */
   id: string;
   blockId: string;
-  flow: 'R' | 'D';
-  /** Kontainer beserta posisinya di tumpukan — sumber (D) atau tujuan (R). */
+  /** R = truk → tumpukan · D = tumpukan → truk · S = relokasi tumpukan → tumpukan. */
+  flow: 'R' | 'D' | 'S';
+  /** Kontainer beserta posisinya di tumpukan — sumber (D, S) atau tujuan (R). */
   container: YardContainer;
+  /** Relokasi saja: kontainer yang sama di posisi tujuannya. */
+  to?: YardContainer;
   /** Pose truk yang menunggu di lajur layanan. */
   truck: { x: number; z: number; ry: number };
   stage: 'queued' | 'working' | 'done';
@@ -93,6 +98,21 @@ type TrafficState = {
   selectedTrip: string | null;
   /** Kamera mengikuti truk yang dipilih. */
   follow: boolean;
+  /** Kamera mengikuti RTG yang sedang bekerja. */
+  followRtg: boolean;
+  setFollowRtg: (v: boolean) => void;
+  /**
+   * Posisi X terakhir tiap RTG setelah selesai bekerja. Tanpa ini RTG yang
+   * baru menaruh kontainer di bay 18 melompat kembali ke bay asalnya begitu
+   * pekerjaannya selesai.
+   */
+  rtgPark: Record<string, number>;
+  parkRtg: (id: string, x: number) => void;
+  /**
+   * Relokasi di dalam blok: kontainer dipindah RTG dari slotnya ke slot lain,
+   * tanpa truk. Mengembalikan alasan kalau tidak bisa dijalankan.
+   */
+  shift: (ctrNo: string, to: YardPosition) => string | null;
   setLive: (patch: Partial<LiveState>) => void;
   selectTrip: (id: string | null) => void;
   setFollow: (v: boolean) => void;
@@ -116,6 +136,8 @@ type TrafficState = {
   dropJob: (id: string) => void;
 
   ingest: (e: TripEvent) => void;
+  /** Kejadian gate (bukan relokasi) — membuat/memperbarui perjalanan truk. */
+  ingestTrip: (e: TripEvent) => void;
   /** Dipanggil komponen saat truk sudah keluar dari lapangan. */
   finish: (id: string) => void;
   /** Dipanggil komponen saat perjalanan tidak bisa digambar. */
@@ -124,6 +146,13 @@ type TrafficState = {
   setShowNetwork: (v: boolean) => void;
   setDiag: (d: TrafficDiag) => void;
   replay: (limit: number) => Promise<void>;
+  /**
+   * Memutar ulang satu tanggal dari GATE_HIST sesuai jam aslinya, dipercepat
+   * `scale` kali (60 = satu jam jadi satu menit). Lihat scheduleDay.
+   */
+  replayDay: (day: string, scale: number) => Promise<void>;
+  /** Jam rekaman saat memutar ulang satu hari; null kalau tidak sedang. */
+  dayClock: { day: string; real: number; startedAt: number; scale: number; done: number; total: number } | null;
   stop: () => void;
 };
 
@@ -143,7 +172,48 @@ export const useTraffic = create<TrafficState>((set, get) => ({
   follow: false,
   setLive: (patch) => set((s) => ({ live: { ...s.live, ...patch } })),
   selectTrip: (selectedTrip) => set({ selectedTrip, follow: selectedTrip ? get().follow : false }),
-  setFollow: (follow) => set({ follow }),
+  setFollow: (follow) => set({ follow, followRtg: follow ? false : get().followRtg }),
+  followRtg: false,
+  setFollowRtg: (followRtg) => set({ followRtg, follow: followRtg ? false : get().follow }),
+  rtgPark: {},
+  parkRtg: (id, x) => set((s) => ({ rtgPark: { ...s.rtgPark, [id]: x } })),
+
+  shift: (ctrNo, to) => {
+    const data = useYard.getState().data;
+    const key = ctrNo.trim().toUpperCase();
+    let found: { block: YardBlock; c: YardContainer } | null = null;
+    for (const b of data?.blocks ?? []) {
+      const c = b.containers.find((x) => x.no.trim().toUpperCase() === key);
+      if (c) found = { block: b, c };
+    }
+    if (!found) return `${key} tidak ada di lapangan`;
+    if (found.block.id !== to.block.toUpperCase()) {
+      // Antar blok berarti truk (atau ITV) di antaranya — itu perjalanan, bukan relokasi.
+      return `relokasi ${key} ke blok lain butuh truk — kirim sebagai gate/handled`;
+    }
+    const dest: YardContainer = {
+      ...found.c,
+      bay: Math.max(0, (to.slot - 1) / 2),
+      row: Math.max(0, to.row - 1),
+      tier: Math.max(1, to.tier),
+    };
+    const id = `SHIFT|${key}|${Date.now()}`;
+    get().queueJob({
+      id,
+      blockId: found.block.id,
+      flow: 'S',
+      container: found.c,
+      to: dest,
+      truck: { x: 0, z: 0, ry: 0 },
+      stage: 'queued',
+      rtgId: null,
+      lifted: false,
+      placed: false,
+      queuedAt: Date.now(),
+    });
+    set({ note: `Relokasi ${key}: ${found.block.id}-${found.c.bay * 2 + 1}/${found.c.row + 1}/${found.c.tier} → ${to.slot}/${to.row}/${to.tier}` });
+    return null;
+  },
 
   rtgJobs: {},
   busyRtg: [],
@@ -165,7 +235,9 @@ export const useTraffic = create<TrafficState>((set, get) => ({
   finishJob: (id) =>
     set((s) => {
       const job = s.rtgJobs[id];
-      if (!job) return {};
+      // Sudah selesai: jangan sentuh daftar RTG sibuk lagi — RTG-nya mungkin
+      // sudah dipakai pekerjaan berikutnya.
+      if (!job || job.stage === 'done') return {};
       return {
         rtgJobs: { ...s.rtgJobs, [id]: { ...job, stage: 'done', lifted: true, placed: true } },
         busyRtg: s.busyRtg.filter((r) => r !== job.rtgId),
@@ -180,7 +252,21 @@ export const useTraffic = create<TrafficState>((set, get) => ({
       return { rtgJobs, busyRtg: s.busyRtg.filter((r) => r !== job.rtgId) };
     }),
 
-  ingest: (e) =>
+  ingest: (e) => {
+    // Relokasi tidak punya truk: langsung jadi pekerjaan RTG.
+    if (e.kind === 'SHIFT') {
+      if (!e.position) {
+        set({ note: `Relokasi ${e.ctrNo} tanpa posisi tujuan — diabaikan` });
+        return;
+      }
+      const why = get().shift(e.ctrNo, e.position);
+      if (why) set({ note: why });
+      return;
+    }
+    get().ingestTrip(e);
+  },
+
+  ingestTrip: (e) =>
     set((s) => {
       const id = tripId(e.jobNo, e.ctrNo);
       if (s.skipped[id]) return {};
@@ -255,6 +341,40 @@ export const useTraffic = create<TrafficState>((set, get) => ({
    * aslinya, dibatasi 2–20 detik dan dibagi kecepatan — selisih di database
    * dev cuma belasan detik, tapi di lapangan sungguhan bisa berjam-jam.
    */
+  dayClock: null,
+  replayDay: async (day, scale) => {
+    get().stop();
+    set({ replaying: true, note: `Membaca GATE_HIST ${day}…`, skipped: {} });
+    let rows: GateTrip[];
+    try {
+      rows = await fetchGateDay(day);
+    } catch (e) {
+      set({ replaying: false, note: e instanceof Error ? e.message : String(e) });
+      return;
+    }
+    const plan = scheduleDay(rows, scale);
+    if (plan.length === 0) {
+      set({ replaying: false, note: `Tidak ada perjalanan pada ${day}.` });
+      return;
+    }
+    const total = plan.length;
+    set({
+      dayClock: { day, real: plan[0].real, startedAt: performance.now(), scale, done: 0, total },
+      note: `Memutar ulang ${day}: ${rows.length} perjalanan, ${scale}× lebih cepat.`,
+    });
+    plan.forEach((p, i) =>
+      timers.push(
+        setTimeout(() => {
+          get().ingest(p.event);
+          // Jam rekaman dipaku ke jam asli kejadian ini, lalu berjalan
+          // `scale` kali lebih cepat sampai kejadian berikutnya.
+          set({ dayClock: { day, real: p.real, startedAt: performance.now(), scale, done: i + 1, total } });
+        }, p.at),
+      ),
+    );
+    timers.push(setTimeout(() => set({ replaying: false }), plan[plan.length - 1].at + 1000));
+  },
+
   replay: async (limit) => {
     get().stop();
     set({ replaying: true, note: 'Membaca GATE_HIST…', skipped: {} });
@@ -309,6 +429,9 @@ export const useTraffic = create<TrafficState>((set, get) => ({
       skipped: {},
       selectedTrip: null,
       follow: false,
+      followRtg: false,
+      rtgPark: {},
+      dayClock: null,
       rtgJobs: {},
       busyRtg: [],
     });

@@ -118,6 +118,7 @@ export function EditorTools() {
   const assetId = useEditor((s) => s.assetId);
   const layout = useEditor((s) => s.layout);
   const selected = useEditor((s) => s.selected);
+  const connectFrom = useEditor((s) => s.connectFrom);
   const extentX = useYard((s) => s.data?.meta.extentX ?? 400);
   const extentZ = useYard((s) => s.data?.meta.extentZ ?? 400);
   const centerX = useYard((s) => s.data?.meta.centerX ?? 0);
@@ -240,6 +241,7 @@ export function EditorTools() {
       if (!store.layout) return;
       if (store.tool === 'select') store.select(hitTest(store.layout, ray.ray));
       else if (store.tool === 'place') store.place(p.x, p.z);
+      else if (store.tool === 'connect') store.connectAt(p.x, p.z);
       // Modus 'slots' ditangani SlotGrid: kliknya mengenai sel, bukan objek.
       invalidate();
     };
@@ -304,7 +306,7 @@ export function EditorTools() {
 
   useEffect(() => {
     invalidate();
-  }, [rect, tool, assetId, invalidate]);
+  }, [rect, tool, assetId, connectFrom, invalidate]);
 
   if (!open) return null;
 
@@ -319,7 +321,8 @@ export function EditorTools() {
   // Tanpa ini tidak ada apa pun di layar yang memberi tahu ke petak mana ubin
   // akan mendarat, jadi dua ubin gampang tertaruh berjauhan satu petak dan
   // jalannya tampak "tidak nyambung" padahal penjepretannya benar.
-  const roadArmed = tool === 'place' && active?.spec.kind === 'road';
+  // Kisi ubin juga tampil untuk Sambung jalan: jalurnya mengikuti petak kisi ini.
+  const roadArmed = (tool === 'place' && active?.spec.kind === 'road') || tool === 'connect';
   const span = Math.ceil((Math.max(extentX, extentZ) * 1.6) / ROAD.tile) * ROAD.tile;
   const gridX = Math.round(centerX / ROAD.tile) * ROAD.tile;
   const gridZ = Math.round(centerZ / ROAD.tile) * ROAD.tile;
@@ -340,6 +343,13 @@ export function EditorTools() {
         />
       )}
 
+      {/* Sambung jalan: tiang penanda di titik awal. */}
+      {tool === 'connect' && connectFrom && (
+        <mesh position={[connectFrom.x, 4, connectFrom.z]}>
+          <cylinderGeometry args={[0.8, 0.8, 8, 12]} />
+          <meshBasicMaterial color="#38bdf8" />
+        </mesh>
+      )}
       {tool === 'place' && (
         <mesh ref={ghost} position-y={0.09}>
           <boxGeometry args={[ghostSize.x, 0.1, ghostSize.z]} />
