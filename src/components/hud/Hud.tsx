@@ -10,7 +10,6 @@ import { KioskView } from './KioskView';
 import { LivePanel } from './LivePanel';
 import { Minimap } from './Minimap';
 import { NewBlockDialog } from './NewBlockDialog';
-import { DetailPanel } from './DetailPanel';
 import { PerfBar } from './PerfBar';
 import { SearchBar } from './SearchBar';
 import { TopBar } from './TopBar';
@@ -76,7 +75,6 @@ export function Hud() {
         </div>
         <div className="flex max-h-full flex-col items-end gap-3 overflow-y-auto pl-1">
           <EditorPanel />
-          <DetailPanel />
           <LivePanel />
           <Minimap />
         </div>

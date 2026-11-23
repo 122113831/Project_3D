@@ -4,6 +4,9 @@ import { useMemo, useRef, useState } from 'react';
 import { PITCH, ROAD, ROAD_KINDS, ROAD_LABEL, type RoadKind } from '@/lib/constants';
 import type { BlockSide } from '@/lib/types';
 import { EQUIPMENT_LABEL, type LayoutBlock, type LayoutEquipment, type LayoutRoad } from '@/lib/layout';
+import { equipmentName, hasEquipmentCode } from '@/lib/equipmentNames';
+import { PARKING_LIMITS, PARKING_VEHICLE, parkingSpec, type ParkingSpec, type ParkingVehicle } from '@/lib/parkingSpec';
+import { WAREHOUSE_LIMITS, WAREHOUSE_PAINTS, warehouseSpec, type WarehouseRoof, type WarehouseSpec } from '@/lib/warehouseSpec';
 import { persistBlockPlacement } from '@/lib/persist';
 import { MIN_LEN, roadLen } from '@/lib/roadSnap';
 import { planGrowth } from '@/lib/shift';
@@ -282,9 +285,7 @@ function BlockSizeActions({ block }: { block: LayoutBlock }) {
           {capDelta >= 0 ? '+' : ''}
           {capDelta} slot)
         </button>
-      ) : (
-        <div className="text-[10px] text-slate-500">Lapangan demo: ukuran hanya berubah di tampilan.</div>
-      )}
+      ) : null}
       <div className="text-[10px] leading-relaxed text-slate-500">
         Mengecilkan ditolak kalau ada kontainer di luar ukuran baru; baris berisi tidak pernah dihapus.
         Blok lain yang ikut digeser posisinya tersimpan ke CORE_YARD_BLOCK.
@@ -349,6 +350,7 @@ function RoadProps({ road }: { road: LayoutRoad }) {
 
 function EquipProps({ item }: { item: LayoutEquipment }) {
   const update = useEditor((s) => s.updateEquipment);
+  const allEquipment = useEditor((s) => s.layout?.equipment);
   const { id } = item;
   return (
     <>
@@ -372,7 +374,163 @@ function EquipProps({ item }: { item: LayoutEquipment }) {
           Membawa kontainer
         </label>
       )}
+      {hasEquipmentCode(item.kind) && (
+        <label className="flex items-center justify-between gap-2 pt-1.5 text-[11px] text-slate-400">
+          <span>Kode alat (label)</span>
+          <input
+            type="text"
+            value={item.code ?? ''}
+            // Kosong = nama otomatis yang sedang tampil di labelnya.
+            placeholder={equipmentName(allEquipment ?? [], item.id)}
+            maxLength={6}
+            onChange={(e) => update(id, { code: e.target.value.toUpperCase() })}
+            className="w-[74px] rounded border border-white/10 bg-black/30 px-1.5 py-0.5 text-right text-[11px] uppercase text-slate-100 outline-none focus:border-sky-400/60"
+          />
+        </label>
+      )}
+      {item.kind === 'warehouse' && (
+        <WarehouseFields item={item} onChange={(b) => update(id, { building: { ...item.building, ...b } })} />
+      )}
+      {item.kind === 'parking' && (
+        <ParkingFields item={item} onChange={(p) => update(id, { parking: { ...item.parking, ...p } })} />
+      )}
     </>
+  );
+}
+
+/**
+ * Isian SATU area parkir: jenis alat (ukuran lajur), jumlah lajur & baris,
+ * dan papan nama. Alatnya tidak ikut — RS dan lainnya ditaruh sendiri dari
+ * tab Alat lalu diletakkan di lajur.
+ */
+function ParkingFields({ item, onChange }: { item: LayoutEquipment; onChange: (p: Partial<ParkingSpec>) => void }) {
+  const s = parkingSpec(item.parking);
+  const btn = (on: boolean) =>
+    `rounded border px-1.5 py-0.5 text-[11px] ${on ? 'border-amber-300/70 bg-amber-400/20 text-slate-50' : 'border-white/15 text-slate-300 hover:border-white/30'}`;
+  const setVehicle = (v: ParkingVehicle) =>
+    onChange({
+      vehicle: v,
+      // Papan nama bawaan ikut berganti; yang sudah diubah pengguna dibiarkan.
+      ...(s.label === 'PARKIR RS' || s.label === 'PARKIR TRUK' ? { label: v === 'truck' ? 'PARKIR TRUK' : 'PARKIR RS' } : {}),
+    });
+  const v = PARKING_VEHICLE[s.vehicle];
+  return (
+    <div className="mt-2 border-t border-white/10 pt-2">
+      <div className="flex items-center justify-between gap-2 py-1 text-[11px] text-slate-400">
+        <span>Lajur untuk</span>
+        <span className="flex gap-1">
+          {(Object.keys(PARKING_VEHICLE) as ParkingVehicle[]).map((k) => (
+            <button key={k} type="button" className={btn(s.vehicle === k)} onClick={() => setVehicle(k)}>
+              {k === 'truck' ? 'Truk' : 'RS'}
+            </button>
+          ))}
+        </span>
+      </div>
+      <Num
+        label="Lajur per baris"
+        value={s.bays}
+        step={1}
+        min={PARKING_LIMITS.bays[0]}
+        onChange={(n) => onChange({ bays: Math.round(Math.min(PARKING_LIMITS.bays[1], Math.max(PARKING_LIMITS.bays[0], n))) })}
+      />
+      <div className="flex items-center justify-between gap-2 py-1 text-[11px] text-slate-400">
+        <span>Baris</span>
+        <span className="flex gap-1">
+          {([1, 2] as const).map((r) => (
+            <button key={r} type="button" className={btn(s.rows === r)} onClick={() => onChange({ rows: r })}>
+              {r === 1 ? '1 baris' : '2 berhadapan'}
+            </button>
+          ))}
+        </span>
+      </div>
+      <label className="flex items-center justify-between gap-2 pt-1.5 text-[11px] text-slate-400">
+        <span>Papan nama</span>
+        <input
+          type="text"
+          value={s.label}
+          maxLength={20}
+          onChange={(e) => onChange({ label: e.target.value })}
+          className="w-[120px] rounded border border-white/10 bg-black/30 px-1.5 py-0.5 text-right text-[11px] uppercase text-slate-100 outline-none focus:border-sky-400/60"
+        />
+      </label>
+      <div className="mt-1.5 text-[10px] leading-relaxed text-slate-500">
+        {s.bays * s.rows} lajur · {v.bayW} × {v.bayL} m per lajur. Alatnya ditaruh sendiri dari tab Alat
+        (mis. Reach stacker) lalu digeser ke lajur.
+      </div>
+    </div>
+  );
+}
+
+/** Ukuran, atap, warna, kelengkapan, dan papan nama SATU gudang. */
+function WarehouseFields({ item, onChange }: { item: LayoutEquipment; onChange: (b: Partial<WarehouseSpec>) => void }) {
+  const s = warehouseSpec(item.building);
+  const clamp = (v: number, [lo, hi]: readonly [number, number]) => Math.min(hi, Math.max(lo, v));
+  const roofs: [WarehouseRoof, string][] = [
+    ['gable', 'Pelana'],
+    ['flat', 'Datar'],
+    ['saw', 'Gergaji'],
+  ];
+  const btn = (on: boolean) =>
+    `rounded border px-1.5 py-0.5 text-[11px] ${on ? 'border-amber-300/70 bg-amber-400/20 text-slate-50' : 'border-white/15 text-slate-300 hover:border-white/30'}`;
+  return (
+    <div className="mt-2 border-t border-white/10 pt-2">
+      <Num label="Panjang (m)" value={s.w} step={6} min={WAREHOUSE_LIMITS.w[0]} onChange={(v) => onChange({ w: clamp(v, WAREHOUSE_LIMITS.w) })} />
+      <Num label="Lebar (m)" value={s.d} step={3} min={WAREHOUSE_LIMITS.d[0]} onChange={(v) => onChange({ d: clamp(v, WAREHOUSE_LIMITS.d) })} />
+      <Num label="Tinggi dinding (m)" value={s.h} step={1} min={WAREHOUSE_LIMITS.h[0]} onChange={(v) => onChange({ h: clamp(v, WAREHOUSE_LIMITS.h) })} />
+      <div className="flex items-center justify-between gap-2 py-1 text-[11px] text-slate-400">
+        <span>Atap</span>
+        <span className="flex gap-1">
+          {roofs.map(([v, name]) => (
+            <button key={v} type="button" className={btn(s.roof === v)} onClick={() => onChange({ roof: v })}>
+              {name}
+            </button>
+          ))}
+        </span>
+      </div>
+      <div className="py-1 text-[11px] text-slate-400">Warna dinding / atap</div>
+      <div className="flex flex-wrap gap-1">
+        {WAREHOUSE_PAINTS.map((p) => (
+          <button
+            key={p.name}
+            type="button"
+            title={p.name}
+            className={btn(s.wall === p.wall && s.roofColor === p.roof)}
+            onClick={() => onChange({ wall: p.wall, roofColor: p.roof })}
+          >
+            <span className="inline-block h-2.5 w-2.5 rounded-sm align-middle" style={{ background: p.wall }} />
+            <span className="ml-0.5 inline-block h-2.5 w-2.5 rounded-sm align-middle" style={{ background: p.roof }} />
+          </button>
+        ))}
+      </div>
+      {(
+        [
+          ['docks', 'Pintu gulung + dock'],
+          ['canopy', 'Kanopi di atas dock'],
+          ['office', 'Kantor di ujung'],
+        ] as const
+      ).map(([k, name]) => (
+        <label key={k} className="flex cursor-pointer items-center gap-2 pt-1 text-[11px] text-slate-300">
+          <input
+            type="checkbox"
+            checked={s[k]}
+            disabled={k === 'canopy' && !s.docks}
+            onChange={(e) => onChange({ [k]: e.target.checked })}
+            className="h-3.5 w-3.5 accent-amber-400"
+          />
+          {name}
+        </label>
+      ))}
+      <label className="flex items-center justify-between gap-2 pt-1.5 text-[11px] text-slate-400">
+        <span>Papan nama</span>
+        <input
+          type="text"
+          value={s.label}
+          maxLength={24}
+          onChange={(e) => onChange({ label: e.target.value })}
+          className="w-[120px] rounded border border-white/10 bg-black/30 px-1.5 py-0.5 text-right text-[11px] uppercase text-slate-100 outline-none focus:border-sky-400/60"
+        />
+      </label>
+    </div>
   );
 }
 
@@ -550,7 +708,7 @@ export function EditorPanel() {
           </button>
           {!ready && (
             <div className="mt-1.5 text-[10px] text-slate-500">
-              Menunggu lapangan {source === 'demo' ? 'demo' : 'database'} selesai dimuat…
+              Menunggu lapangan database selesai dimuat…
             </div>
           )}
         </Section>

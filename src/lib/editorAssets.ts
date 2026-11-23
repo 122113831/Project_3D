@@ -11,9 +11,12 @@ import {
 import { ITV_MODEL_URL, RTG_CRANE_MODEL_URL, STS_MODEL_URL } from './containerModel';
 import { RTG_DETAIL, rtgDetailModel, rtgDetailRailZ, type RtgDetailModel } from './rtgDetail';
 import { rtgDetail2Model } from './rtgDetail2';
+import { warehouseModel } from './warehouse';
+import { createReachStacker } from './reachStacker';
+import type { WarehouseSpec } from './warehouseSpec';
+import { parkingModel } from './parking';
+import { PARKING_VEHICLE, parkingSpec, type ParkingSpec } from './parkingSpec';
 import {
-  createChassisGeometry,
-  createChassisLoadGeometry,
   createContainerGeometry,
   createGateGeometry,
   createGateSignGeometry,
@@ -24,7 +27,7 @@ import {
   createSlotMarkingTexture,
 } from './geometry';
 import {
-  EQUIPMENT_FOOTPRINT,
+  equipmentFootprint,
   type EquipmentKind,
   type LayoutBlock,
   type LayoutEquipment,
@@ -39,13 +42,15 @@ import {
  * renderer, jadi kartu tidak bisa berbohong tentang isi lapangan.
  */
 
-export type AssetCategory = 'block' | 'road' | 'gate' | 'equipment';
+export type AssetCategory = 'block' | 'road' | 'gate' | 'equipment' | 'warehouse' | 'parking';
 
 export const CATEGORY_LABEL: Record<AssetCategory, string> = {
   block: 'Blok',
   road: 'Jalan',
   gate: 'Gate',
   equipment: 'Alat',
+  warehouse: 'Warehouse',
+  parking: 'Parkir',
 };
 
 export type AssetSpec =
@@ -70,7 +75,6 @@ export type AssetItem = {
 
 const STEEL = new THREE.MeshPhongMaterial({ color: '#3a6ea5', shininess: 20 });
 const ORANGE = new THREE.MeshPhongMaterial({ color: '#d9741f', shininess: 20 });
-const CHASSIS = new THREE.MeshPhongMaterial({ color: '#5b636e', shininess: 20 });
 const LAMP = new THREE.MeshPhongMaterial({ color: '#6f7681', shininess: 10 });
 const GATE_FRAME = new THREE.MeshPhongMaterial({ color: '#9aa3ad', shininess: 14 });
 /** Warna kontainer contoh — sekadar supaya kartu blok terbaca sebagai tumpukan. */
@@ -172,20 +176,34 @@ function rtgDetailPreview(model: (railZ: number) => RtgDetailModel = rtgDetailMo
   return g;
 }
 
-function truckPreview(loaded: boolean) {
+/** Pratinjau gudang: model yang SAMA dengan lapangan. */
+function warehousePreview(spec: Partial<WarehouseSpec>) {
   const g = new THREE.Group();
-  g.add(new THREE.Mesh(createChassisGeometry(), CHASSIS));
-  if (loaded) g.add(new THREE.Mesh(createChassisLoadGeometry(), CARGO[0]));
-  // Kepala traktor diwakili kotak: aset GLB-nya dimuat asinkron, dan kartu
-  // palet tidak boleh menunggu unduhan sebelum bisa digambar.
-  const cab = new THREE.Mesh(new THREE.BoxGeometry(2.9, 3.1, 2.5), STEEL);
-  cab.position.set(2.9, 2.3, 0);
-  g.add(cab);
-  const frame = new THREE.Mesh(new THREE.BoxGeometry(5.9, 1.1, 2.5), CHASSIS);
-  frame.position.set(1.5, 0.55, 0);
-  g.add(frame);
+  for (const p of warehouseModel(spec)) g.add(new THREE.Mesh(p.geometry, p.material));
   return g;
 }
+
+/** Pratinjau parkir: pelat lajur saja (model yang sama dengan lapangan). */
+function parkingPreview(spec: Partial<ParkingSpec>) {
+  const g = new THREE.Group();
+  for (const p of parkingModel(spec)) g.add(new THREE.Mesh(p.geometry, p.material));
+  return g;
+}
+
+/** Area parkir siap pakai; jumlah lajur & baris tetap bisa diubah di panel. */
+const PARKING_PRESETS: { id: string; label: string; spec: Partial<ParkingSpec> }[] = [
+  { id: 'pk-rs-4', label: 'Parkir RS 4 lajur', spec: { vehicle: 'reachStacker', bays: 4, rows: 1, label: 'PARKIR RS' } },
+  { id: 'pk-rs-8', label: 'Parkir RS 2 baris', spec: { vehicle: 'reachStacker', bays: 4, rows: 2, label: 'PARKIR RS' } },
+  { id: 'pk-truck-6', label: 'Parkir truk 6 lajur', spec: { vehicle: 'truck', bays: 6, rows: 1, label: 'PARKIR TRUK' } },
+];
+
+/** Ukuran gudang siap pakai di palet; ukuran & detail tetap bisa diubah di panel. */
+const WAREHOUSE_PRESETS: { id: string; label: string; spec: Partial<WarehouseSpec> }[] = [
+  { id: 'wh-s', label: 'Gudang kecil', spec: { w: 30, d: 18, h: 7, roof: 'gable', office: false, canopy: false, label: 'GUDANG' } },
+  { id: 'wh-m', label: 'Gudang sedang', spec: { w: 60, d: 30, h: 9, roof: 'gable', label: 'GUDANG' } },
+  { id: 'wh-l', label: 'Gudang besar', spec: { w: 96, d: 42, h: 12, roof: 'saw', wall: '#cfd6cf', roofColor: '#2f6b46', label: 'GUDANG' } },
+  { id: 'wh-cfs', label: 'Gudang CFS', spec: { w: 72, d: 36, h: 10, roof: 'flat', wall: '#e8e2d2', roofColor: '#9a3b2c', label: 'CFS' } },
+];
 
 // --- katalog -----------------------------------------------------------------
 
@@ -269,22 +287,6 @@ export const ASSET_ITEMS: AssetItem[] = [
     spec: { kind: 'equipment', equipment: 'rtg' },
     build: rtgPreview,
   },
-  {
-    id: 'truck-loaded',
-    category: 'equipment',
-    label: 'Truk bermuatan',
-    detail: 'Traktor + chassis 40ft + kontainer',
-    spec: { kind: 'equipment', equipment: 'truck', extra: { loaded: true } },
-    build: () => truckPreview(true),
-  },
-  {
-    id: 'truck-empty',
-    category: 'equipment',
-    label: 'Truk kosong',
-    detail: 'Traktor + chassis 40ft',
-    spec: { kind: 'equipment', equipment: 'truck', extra: { loaded: false } },
-    build: () => truckPreview(false),
-  },
   // Gate dua arus lebih dulu: satu jalan lurus membawa dua arah, jadi inilah
   // bentuk yang biasa dipakai. Yang satu arah disediakan untuk jalan yang
   // memang cuma dilalui satu arah.
@@ -312,6 +314,36 @@ export const ASSET_ITEMS: AssetItem[] = [
     spec: { kind: 'equipment', equipment: 'gateOut' },
     build: () => gatePreview('out'),
   },
+  ...WAREHOUSE_PRESETS.map(
+    (p): AssetItem => ({
+      id: p.id,
+      category: 'warehouse',
+      label: p.label,
+      detail: `${p.spec.w} x ${p.spec.d} m · tinggi ${p.spec.h} m`,
+      spec: { kind: 'equipment', equipment: 'warehouse', extra: { building: p.spec } },
+      build: () => warehousePreview(p.spec),
+    }),
+  ),
+  ...PARKING_PRESETS.map((p): AssetItem => {
+    const s = parkingSpec(p.spec);
+    return {
+      id: p.id,
+      category: 'parking',
+      label: p.label,
+      detail: `${s.bays * s.rows} lajur ${PARKING_VEHICLE[s.vehicle].name.toLowerCase()} · tanpa alat`,
+      spec: { kind: 'equipment', equipment: 'parking', extra: { parking: p.spec } },
+      build: () => parkingPreview(p.spec),
+    };
+  }),
+  {
+    id: 'reach-stacker',
+    category: 'equipment',
+    label: 'Reach stacker',
+    detail: 'RS · boom teleskopik · spreader 20ft',
+    spec: { kind: 'equipment', equipment: 'reachStacker' },
+    // Pratinjau dengan boom terangkat, seperti foto acuan.
+    build: () => createReachStacker('RS01', { angle: 0.62, ext: 3.5 }),
+  },
   {
     id: 'lamp',
     category: 'equipment',
@@ -333,7 +365,11 @@ export function assetFootprint(item: AssetItem): { x: number; z: number } {
   if (item.spec.kind === 'road') {
     return { x: ROAD.tile, z: ROAD.tile };
   }
-  return EQUIPMENT_FOOTPRINT[item.spec.equipment];
+  return equipmentFootprint({
+    kind: item.spec.equipment,
+    building: item.spec.extra?.building,
+    parking: item.spec.extra?.parking,
+  });
 }
 
 export const itemsIn = (c: AssetCategory) => ASSET_ITEMS.filter((i) => i.category === c);

@@ -1,27 +1,15 @@
 import { NextResponse } from 'next/server';
 import { fetchDepotYard } from '@/lib/depot';
-import { generateYard } from '@/lib/yard';
 
 /**
  * Sumber data lapangan.
  *
- * Default membaca database depot (Oracle). Generator lama tetap bisa dipanggil
- * lewat `?source=demo` — itu yang dipakai preset kepadatan untuk menunjukkan
- * perilaku renderer pada belasan ribu kontainer, jumlah yang tidak ada di
- * database mana pun di sini.
+ * Hanya database depot (Oracle). Sumber "demo" bangkitan sudah dihapus.
  */
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-export async function GET(request: Request) {
-  const params = new URL(request.url).searchParams;
-  const source = params.get('source') === 'demo' ? 'demo' : 'depot';
-
-  if (source === 'demo') {
-    const fill = Number(params.get('fill') ?? 0.68);
-    return NextResponse.json(generateYard({ fill: Number.isFinite(fill) ? fill : 0.68 }));
-  }
-
+export async function GET() {
   try {
     return NextResponse.json(await fetchDepotYard());
   } catch (e) {

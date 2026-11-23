@@ -18,3 +18,6 @@ yarn-error.log*
 # polos — insp.tmp.mjs di akar proyek salah satunya — jadi jangan pernah ikut
 # terdorong ke repositori.
 *.tmp.mjs
+
+# Sertifikat akar jaringan lokal (khusus mesin ini)
+certs/

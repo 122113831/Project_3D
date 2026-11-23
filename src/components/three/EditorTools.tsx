@@ -7,7 +7,7 @@ import { ROAD } from '@/lib/constants';
 import { assetFootprint, findItem } from '@/lib/editorAssets';
 import {
   blockSize,
-  EQUIPMENT_FOOTPRINT,
+  equipmentFootprint,
   type LayoutBlock,
   type LayoutEquipment,
   type LayoutRoad,
@@ -44,7 +44,7 @@ const roadRectOf = (r: LayoutRoad): Rect => ({
   ry: r.ry,
 });
 const equipRectOf = (e: LayoutEquipment): Rect => {
-  const f = EQUIPMENT_FOOTPRINT[e.kind];
+  const f = equipmentFootprint(e);
   return { cx: e.x, cz: e.z, sx: f.x, sy: f.y, sz: f.z, ry: e.ry };
 };
 

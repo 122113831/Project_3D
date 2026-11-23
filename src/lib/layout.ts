@@ -1,6 +1,8 @@
 import { GATE, PITCH, ROAD, RTG, YARD, type RoadKind } from './constants';
 import { blockedCount, normalizeBlocked } from './slots';
 import type { BlockedCell, BlockSide, YardBlock, YardData, YardSource } from './types';
+import { warehouseFootprint, type WarehouseSpec } from './warehouseSpec';
+import { parkingFootprint, type ParkingSpec } from './parkingSpec';
 
 /**
  * Tata letak lapangan hasil suntingan.
@@ -49,6 +51,9 @@ export const EQUIPMENT_KINDS = [
   'rtgAsset',
   'rtgDetail',
   'rtgDetail2',
+  'warehouse',
+  'parking',
+  'reachStacker',
   'truck',
   'itv',
   'sts',
@@ -64,6 +69,9 @@ export const EQUIPMENT_LABEL: Record<EquipmentKind, string> = {
   rtgAsset: 'RTG crane',
   rtgDetail: 'RTG detail (kuning)',
   rtgDetail2: 'RTG detail 2 (festoon)',
+  warehouse: 'Gudang',
+  parking: 'Parkir alat',
+  reachStacker: 'Reach stacker',
   truck: 'Truk + chassis',
   itv: 'ITV',
   sts: 'STS crane',
@@ -94,6 +102,11 @@ export const EQUIPMENT_FOOTPRINT: Record<
   // RTG detail dibangun per lebar blok; angka ini untuk blok 6 row.
   rtgDetail: { x: 15, z: 27, y: 25 },
   rtgDetail2: { x: 16, z: 29, y: 25 },
+  // Ukuran gudang standar; tiap gudang punya ukurannya sendiri (lihat equipmentFootprint).
+  warehouse: warehouseFootprint(null),
+  // Sama seperti gudang: ukuran per area (lihat equipmentFootprint).
+  parking: parkingFootprint(null),
+  reachStacker: { x: 15, z: 6.4, y: 9 },
   truck: { x: 15.4, z: 2.6, y: 4.2 },
   itv: { x: 16.4, z: 3.2, y: 4 },
   sts: { x: 27, z: 113.8, y: 62 },
@@ -112,7 +125,25 @@ export type LayoutEquipment = {
   ry: number;
   /** Khusus truk: apakah chassis-nya membawa kontainer. */
   loaded?: boolean;
+  /** Khusus alat bergerak (reach stacker): kode alat, mis. RS01 — sama dengan KODE_ALAT. */
+  code?: string;
+  /** Khusus gudang: ukuran, atap, warna, kelengkapan, papan nama. */
+  building?: Partial<WarehouseSpec>;
+  /** Khusus parkir alat: jumlah lajur, baris, alat yang parkir, jenis & kodenya. */
+  parking?: Partial<ParkingSpec>;
 };
+
+/**
+ * Ukuran alas & tinggi SATU alat. Sama dengan EQUIPMENT_FOOTPRINT kecuali
+ * gudang, yang ukurannya diatur per bangunan.
+ */
+export function equipmentFootprint(
+  e: Pick<LayoutEquipment, 'kind' | 'building' | 'parking'>,
+): { x: number; z: number; y: number } {
+  if (e.kind === 'warehouse') return warehouseFootprint(e.building);
+  if (e.kind === 'parking') return parkingFootprint(e.parking);
+  return EQUIPMENT_FOOTPRINT[e.kind];
+}
 
 /**
  * Sebuah UBIN jalan. Satu ubin = satu petak persegi seukuran ROAD.tile.

@@ -147,7 +147,8 @@ export type YardBlock = {
 export type YardLine = { code: string; name: string };
 
 /** Dari mana isi lapangan berasal. */
-export type YardSource = 'demo' | 'depot';
+/** Sumber lapangan: hanya database depot (sumber demo bangkitan sudah dihapus). */
+export type YardSource = 'depot';
 
 export type YardData = {
   blocks: YardBlock[];

@@ -36,7 +36,8 @@ export const allTruckPoses = () => poses;
 // --- RTG yang bekerja -----------------------------------------------------------
 //
 // Posisi spreader tiap RTG yang sedang bekerja, ditulis RtgWorks tiap frame.
-// Dibaca kamera "Ikuti RTG"; alasan tinggal di luar store sama dengan pose truk.
+// RsWorks menulis pose RS yang bekerja ke peta yang sama. Dibaca kamera
+// "Ikuti alat"; alasan tinggal di luar store sama dengan pose truk.
 export type RtgPose = { x: number; y: number; z: number };
 const rtgPoses = new Map<string, RtgPose>();
 export const setRtgPose = (jobId: string, p: RtgPose) => {
@@ -45,6 +46,8 @@ export const setRtgPose = (jobId: string, p: RtgPose) => {
 export const dropRtgPose = (jobId: string) => {
   rtgPoses.delete(jobId);
 };
+/** Pose alat untuk satu pekerjaan (RTG atau RS), atau null. */
+export const workPose = (jobId: string): RtgPose | null => rtgPoses.get(jobId) ?? null;
 /** RTG pertama yang sedang bekerja, atau null. */
 export const anyRtgPose = (): RtgPose | null => rtgPoses.values().next().value ?? null;
 

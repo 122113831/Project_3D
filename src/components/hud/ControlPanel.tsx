@@ -20,6 +20,7 @@ import { useYard, type WeatherMode } from '@/store/useYard';
 import { useTraffic } from '@/store/useTraffic';
 import { useYardView } from '@/store/useYardView';
 import { DayReplay } from './DayReplay';
+import { runRsDemo, useRsWorks } from '@/store/useRsWorks';
 import { Chip, Panel, Section, SubLabel, Toggle } from './ui';
 
 const COLOR_MODES: ColorMode[] = ['line', 'status', 'size', 'tier'];
@@ -28,12 +29,6 @@ const COLOR_MODES: ColorMode[] = ['line', 'status', 'size', 'tier'];
 const STATUSES: ContainerStatus[] = ['full', 'empty', 'dangerous', 'damaged'];
 const SIZES: ContainerSize[] = [20, 40];
 const TYPES: TypeFilter[] = ['gp', 'tank', 'reefer'];
-const DENSITIES = [
-  { label: 'Ringan', value: 0.3 },
-  { label: 'Normal', value: 0.68 },
-  { label: 'Padat', value: 0.88 },
-  { label: 'Stress', value: 1 },
-];
 
 export function ControlPanel() {
   const colorMode = useYard((s) => s.colorMode);
@@ -46,8 +41,6 @@ export function ControlPanel() {
   const resetFilter = useYard((s) => s.resetFilter);
   const options = useYard((s) => s.options);
   const setOption = useYard((s) => s.setOption);
-  const fill = useYard((s) => s.fill);
-  const load = useYard((s) => s.load);
   const loading = useYard((s) => s.loading);
   const source = useYard((s) => s.source);
   const data = useYardView();
@@ -153,43 +146,11 @@ export function ControlPanel() {
       </Section>
 
       <Section title="Sumber data">
-        <div className="grid grid-cols-2 gap-1">
-          <Chip
-            active={source === 'depot'}
-            title="Baca YARD_ROWTIER + CONTAINER dari Oracle"
-            onClick={() => void load({ source: 'depot' })}
-          >
-            Database
-          </Chip>
-          <Chip
-            active={source === 'demo'}
-            title="Lapangan bangkitan untuk menguji renderer pada belasan ribu kontainer"
-            onClick={() => void load({ source: 'demo' })}
-          >
-            Demo
-          </Chip>
+        <div className="text-[11px] text-slate-300">
+          <span className="font-medium text-slate-100">Database depot</span>{' '}
+          <span className="text-slate-500">· YARD_ROWTIER + CONTAINER</span>
         </div>
-
-        {source === 'demo' && (
-          <>
-            <div className="mt-1.5 grid grid-cols-4 gap-1">
-              {DENSITIES.map((d) => (
-                <Chip
-                  key={d.label}
-                  active={Math.abs(fill - d.value) < 0.01}
-                  onClick={() => void load({ fill: d.value, source: 'demo' })}
-                >
-                  {d.label}
-                </Chip>
-              ))}
-            </div>
-            <div className="mt-1 text-[10px] text-slate-500">
-              {loading ? 'Membangun ulang lapangan…' : 'Tingkat isi lapangan bangkitan.'}
-            </div>
-          </>
-        )}
-
-        {source === 'depot' && (
+        {(
           <div className="mt-1 text-[10px] text-slate-500">
             {loading
               ? 'Membaca database depot…'
@@ -234,20 +195,14 @@ export function ControlPanel() {
             Kontainer realistis <span className="text-slate-500">(GP Maersk + reefer · matikan = aset lama)</span>
           </Toggle>
         )}
-        <Toggle checked={options.rtg} onChange={(v) => setOption('rtg', v)}>
-          RTG crane
-        </Toggle>
-        <Toggle checked={options.lamps} onChange={(v) => setOption('lamps', v)}>
-          Tiang lampu
-        </Toggle>
-        <Toggle checked={options.trucks} onChange={(v) => setOption('trucks', v)}>
-          Truk
-        </Toggle>
         <Toggle checked={options.shadows} onChange={(v) => setOption('shadows', v)}>
           Bayangan <span className="text-slate-500">(berat)</span>
         </Toggle>
         <Toggle checked={options.blockInfo} onChange={(v) => setOption('blockInfo', v)}>
           Kapasitas blok <span className="text-slate-500">(% terisi · sisa box)</span>
+        </Toggle>
+        <Toggle checked={options.equipLabels} onChange={(v) => setOption('equipLabels', v)}>
+          Nama alat <span className="text-slate-500">(label di atas RTG, RS, …)</span>
         </Toggle>
         <Toggle checked={options.alerts} onChange={(v) => setOption('alerts', v)}>
           Peringatan <span className="text-slate-500">(bahaya · rusak · lewat batas)</span>
@@ -314,6 +269,7 @@ function TrafficSection() {
   const followRtg = useTraffic((s) => s.followRtg);
   const setFollowRtg = useTraffic((s) => s.setFollowRtg);
   const rtgBusy = useTraffic((s) => s.busyRtg.length);
+  const rsBusy = useRsWorks((s) => s.busy.length);
 
   /**
    * Relokasi contoh: satu kontainer teratas dipindah RTG ke tumpukan lain di
@@ -371,11 +327,18 @@ function TrafficSection() {
           Contoh relokasi
         </Chip>
         <Chip
+          active={rsBusy > 0}
+          onClick={() => useTraffic.setState({ note: runRsDemo() })}
+          title="RS bebas berikutnya keluar dari parkir, merelokasi satu kontainer di baris tepi blok terdekat, lalu kembali"
+        >
+          Jalankan RS{rsBusy ? ` · ${rsBusy}` : ''}
+        </Chip>
+        <Chip
           active={followRtg}
           onClick={() => setFollowRtg(!followRtg)}
-          title="Kamera mengikuti RTG yang sedang bekerja"
+          title="Kamera mengikuti RTG atau RS yang sedang bekerja"
         >
-          Ikuti RTG{rtgBusy ? ` · ${rtgBusy}` : ''}
+          Ikuti alat{rtgBusy + rsBusy ? ` · ${rtgBusy + rsBusy}` : ''}
         </Chip>
       </div>
       <div className="mt-1.5">

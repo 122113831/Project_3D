@@ -331,11 +331,26 @@ function Blocks({ models, real }: { models: DetailModels | null; real: boolean }
   // sendiri, dan — untuk kontainer realistis — per LIVERY dari master
   // YARD_LIVERY (prefix nomor kontainer → merek), karena tiap merek punya
   // atlas marka dan cat sendiri. Tank tetap aset lamanya, tanpa livery.
+  // Dipakai ulang antar perubahan data: saat RTG mengangkat atau menaruh satu
+  // kontainer, data lapangan berganti dan SEMUA blok & kelompok dibuat ulang —
+  // padahal isinya sama. Lapisan instanced yang menerima array/objek baru
+  // membangun ulang geometri bernomor, matriks, dan mesh-nya, dan seluruh
+  // lapangan berkedip seperti dimuat ulang. Di sini blok yang bentuknya sama
+  // dan kelompok yang isinya sama (objek kontainer yang sama, urutan sama)
+  // mendapat referensi LAMA, jadi hanya kelompok yang benar-benar berubah
+  // yang dibangun ulang.
+  const stable = useRef({ blocks: new Map<string, { key: string; block: YardBlock }>(), items: new Map<string, YardContainer[]>() });
   const split = useMemo(
     () =>
-      (data?.blocks ?? []).map((block) => {
+      (data?.blocks ?? []).map((raw) => {
+        const bKey = [raw.id, raw.originX, raw.originZ, raw.rot, raw.slots, raw.rows, raw.tiers, raw.slotStart, raw.truckLane, raw.slotStep].join('|');
+        const prevB = stable.current.blocks.get(raw.id);
+        // Blok lama dipakai untuk penempatan (posisi/rotasi/ukuran); isinya
+        // dibaca dari kelompok di bawah, bukan dari block.containers.
+        const block = prevB && prevB.key === bKey ? prevB.block : raw;
+        stable.current.blocks.set(raw.id, { key: bKey, block });
         const groups = new Map<string, Group>();
-        for (const c of block.containers) {
+        for (const c of raw.containers) {
           const kind = kindOf(c) as Kind;
           const size: 20 | 40 = kind === 'tank' ? 20 : c.size === 40 ? 40 : 20;
           // Tank hanya memakai livery bermodel TANK (tank realistis); tank
@@ -346,6 +361,12 @@ function Blocks({ models, real }: { models: DetailModels | null; real: boolean }
           const g = groups.get(key);
           if (g) g.items.push(c);
           else groups.set(key, { key, kind, size, livery, items: [c] });
+        }
+        for (const g of groups.values()) {
+          const k = `${raw.id}|${g.key}`;
+          const prev = stable.current.items.get(k);
+          if (prev && prev.length === g.items.length && prev.every((x, i) => x === g.items[i])) g.items = prev;
+          else stable.current.items.set(k, g.items);
         }
         return { block, groups: [...groups.values()] };
       }),

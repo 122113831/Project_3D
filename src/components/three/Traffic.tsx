@@ -5,7 +5,8 @@ import { useGLTF } from '@react-three/drei';
 import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import { TRUCK_MODEL_URL, truckModelFor } from '@/lib/containerModel';
-import { createChassisGeometry, createChassisLoadGeometry } from '@/lib/geometry';
+import { createChassisGeometry } from '@/lib/geometry';
+import { CarriedContainer } from './CarriedContainer';
 import {
   buildRoadGraph,
   keepLeft,
@@ -30,7 +31,7 @@ import { fetchContainer } from '@/lib/yardApi';
 import { useEditor } from '@/store/useEditor';
 import { useTraffic, type Trip } from '@/store/useTraffic';
 import { useYardView } from '@/store/useYardView';
-import { GATE, ROAD } from '@/lib/constants';
+import { BOX, GATE, ROAD } from '@/lib/constants';
 import {
   allTruckPoses,
   dropTruck,
@@ -303,7 +304,6 @@ function Fleet({ graph, find, blocks }: {
   const gltf = useGLTF(TRUCK_MODEL_URL, false, false);
   const parts = useMemo(() => truckModelFor(gltf).parts20, [gltf]);
   const chassis = useMemo(() => createChassisGeometry(), []);
-  const load = useMemo(() => createChassisLoadGeometry(), []);
 
   const invalidate = useThree((s) => s.invalidate);
   const movers = useRef(new Map<string, Mover>());
@@ -318,7 +318,17 @@ function Fleet({ graph, find, blocks }: {
 
   const partRefs = useRef<(THREE.InstancedMesh | null)[]>([]);
   const chassisRef = useRef<THREE.InstancedMesh>(null);
-  const loadRef = useRef<THREE.InstancedMesh>(null);
+  /**
+   * Truk yang sedang bermuatan dan kontainernya. Muatan digambar dengan aset
+   * kontainer yang sama dengan di tumpukan (CarriedContainer), satu grup per
+   * truk — jumlahnya puluhan, bukan ribuan. Daftar ini baru diganti saat
+   * susunannya berubah (truk naik/turun muatan), bukan tiap frame.
+   */
+  const [cargo, setCargo] = useState<{ id: string; c: YardContainer }[]>([]);
+  const cargoSig = useRef('');
+  const cargoRefs = useRef(new Map<string, THREE.Group>());
+  /** Kontainer pengganti untuk truk bongkar yang tujuannya belum diketahui. */
+  const ghost = useRef(new Map<string, YardContainer>());
 
   // --- tujuan -------------------------------------------------------------
   //
@@ -506,6 +516,9 @@ function Fleet({ graph, find, blocks }: {
   const one = useMemo(() => new THREE.Vector3(1, 1, 1), []);
   const lamp = useMemo(() => new THREE.Matrix4(), []);
   const sig = useMemo(() => new THREE.Matrix4(), []);
+  /** Tengah muatan di atas chassis, lokal truk (lihat createChassisLoadGeometry). */
+  const loadAt = useMemo(() => new THREE.Matrix4().makeTranslation(1.3 - BOX.len40 / 2, 1.45 + BOX.height / 2, 0), []);
+  const cm = useMemo(() => new THREE.Matrix4(), []);
   const signalRef = useRef<THREE.InstancedMesh>(null);
   const brakeRef = useRef<THREE.InstancedMesh>(null);
   const lampGeo = useMemo(() => new THREE.SphereGeometry(0.28, 8, 6), []);
@@ -517,7 +530,7 @@ function Fleet({ graph, find, blocks }: {
     const done: string[] = [];
     let moving = false;
     let n = 0;
-    let nl = 0;
+    const loadedNow: { id: string; c: YardContainer }[] = [];
     let ns = 0;
     let nb = 0;
     const seq: string[] = [];
@@ -663,7 +676,21 @@ function Fleet({ graph, find, blocks }: {
       // Bongkar (R) datang bermuatan dan kosong begitu spreader mengangkatnya;
       // ambil (D) datang kosong dan bermuatan begitu spreader melepasnya.
       const loaded = trip.flow === 'R' ? !job?.lifted : !!job?.placed;
-      if (loaded) loadRef.current?.setMatrixAt(nl++, m4);
+      if (loaded) {
+        let c = m.dest?.c ?? ghost.current.get(m.id);
+        if (!c) {
+          c = { no: trip.ctrNo, size: 20, type: 'gp', status: 'empty', line: '', block: '', bay: 0, row: 0, tier: 1,
+            weightKg: 0, vessel: '', inDate: '', filled: false, damaged: false, typeCode: '', isoCode: '', reefer: false, dangerous: false };
+          ghost.current.set(m.id, c);
+        }
+        loadedNow.push({ id: m.id, c });
+        const g = cargoRefs.current.get(m.id);
+        if (g) {
+          g.matrixAutoUpdate = false;
+          g.matrix.copy(cm.multiplyMatrices(m4, loadAt));
+          g.matrixWorldNeedsUpdate = true;
+        }
+      }
       n++;
     }
     order.current = seq;
@@ -673,9 +700,11 @@ function Fleet({ graph, find, blocks }: {
       mesh.count = n;
       mesh.instanceMatrix.needsUpdate = true;
     }
-    if (loadRef.current) {
-      loadRef.current.count = nl;
-      loadRef.current.instanceMatrix.needsUpdate = true;
+    const sigNow = loadedNow.map((x) => `${x.id}:${x.c.no}`).join(',');
+    if (sigNow !== cargoSig.current) {
+      cargoSig.current = sigNow;
+      setCargo(loadedNow);
+      invalidate();
     }
     for (const [ref, count] of [
       [signalRef, ns],
@@ -688,6 +717,7 @@ function Fleet({ graph, find, blocks }: {
 
     for (const id of done) {
       movers.current.delete(id);
+      ghost.current.delete(id);
       dropTruck(id);
       finish(id);
     }
@@ -726,9 +756,16 @@ function Fleet({ graph, find, blocks }: {
       >
         <meshPhongMaterial color="#5b636e" shininess={20} />
       </instancedMesh>
-      <instancedMesh ref={loadRef} args={[load, undefined, CAP]} count={0} frustumCulled={false}>
-        <meshPhongMaterial color="#c9762f" shininess={20} />
-      </instancedMesh>
+      {cargo.map(({ id, c }) => (
+        <CarriedContainer
+          key={`${id}:${c.no}`}
+          c={c}
+          ref={(el) => {
+            if (el) cargoRefs.current.set(id, el);
+            else cargoRefs.current.delete(id);
+          }}
+        />
+      ))}
       {/* Lampu sein dan rem: tanpa pencahayaan supaya tampak menyala. */}
       <instancedMesh ref={signalRef} args={[lampGeo, undefined, CAP * 2]} count={0} frustumCulled={false}>
         <meshBasicMaterial color="#ffa21a" />

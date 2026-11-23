@@ -13,7 +13,7 @@ import { useYardView } from '@/store/useYardView';
 
 // Gate diletakkan setelah Jalan karena ia berdiri DI ATAS jalan — urutan
 // tabnya mengikuti urutan orang membangun lapangan.
-const CATEGORIES: AssetCategory[] = ['block', 'road', 'gate', 'equipment'];
+const CATEGORIES: AssetCategory[] = ['block', 'road', 'gate', 'equipment', 'warehouse', 'parking'];
 
 /**
  * Palet aset di tepi bawah layar: tab kategori, lalu deretan kartu bergambar.

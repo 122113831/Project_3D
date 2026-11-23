@@ -386,7 +386,7 @@ function drawMarkings(A: Atlas, liv: Livery): { canvas: HTMLCanvasElement; zones
   } else if (liv.logoFile && liv.logoPos !== 'NONE') {
     // Logo berkas agen di tempat yang sama dengan "seaco": kiri atas pita.
     // Dimuat menyusul; papan latar otomatis bila kontrasnya kurang.
-    pending.push({ file: liv.logoFile, cx: m(x0 + 1.35), cy: m(0.52), w: m(1.9), h: m(0.55), body: liv.bodyColor });
+    pending.push({ file: liv.logoFile, cx: m(x0 + 1.35), cy: m(0.52), w: m(1.9), h: m(0.55), body: liv.bodyColor, ink: liv.textColor });
   }
 
   // Blok teks panduan operasi kiri & kanan bawah, rambu dilarang forklift.

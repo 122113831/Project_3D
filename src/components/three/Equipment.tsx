@@ -19,6 +19,11 @@ import {
 import { generateEquipment, rtgAssetScaleAt, rtgScaleAt } from '@/lib/equipment';
 import { RTG_DETAIL, rtgDetailModel, rtgDetailRailZAt } from '@/lib/rtgDetail';
 import { rtgDetail2Model, setRtgDetail2Night } from '@/lib/rtgDetail2';
+import { setWarehouseNight, warehouseModel } from '@/lib/warehouse';
+import { parkingModel } from '@/lib/parking';
+import { useRsWorks } from '@/store/useRsWorks';
+import { createReachStacker, setReachStackerNight } from '@/lib/reachStacker';
+import type { LayoutEquipment } from '@/lib/layout';
 import {
   createChassisGeometry,
   createChassisLoadGeometry,
@@ -168,6 +173,63 @@ function RtgDetailProps({ items }: { items: (Placement & { railZ: number; varian
   );
 }
 
+/** Gudang: model prosedural per spesifikasi (di-cache per isian), lampu ikut mode malam. */
+function WarehouseProps({ items }: { items: LayoutEquipment[] }) {
+  const night = useYard((s) => s.options.night);
+  const invalidate = useThree((s) => s.invalidate);
+  useLayoutEffect(() => {
+    setWarehouseNight(night);
+    invalidate();
+  }, [night, invalidate]);
+  return (
+    <>
+      {items.map((it) => (
+        <group key={it.id} position={[it.x, 0, it.z]} rotation-y={it.ry}>
+          {warehouseModel(it.building).map((p) => (
+            <mesh key={p.name} geometry={p.geometry} material={p.material} castShadow receiveShadow dispose={null} />
+          ))}
+        </group>
+      ))}
+    </>
+  );
+}
+
+/** Pelat parkir alat (lajur kosong; alatnya ditaruh sendiri). */
+function ParkingPads({ items }: { items: LayoutEquipment[] }) {
+  return (
+    <>
+      {items.map((it) => (
+        <group key={it.id} position={[it.x, 0, it.z]} rotation-y={it.ry}>
+          {parkingModel(it.parking).map((p) => (
+            <mesh key={p.name} geometry={p.geometry} material={p.material} castShadow={p.shadow !== false} receiveShadow dispose={null} />
+          ))}
+        </group>
+      ))}
+    </>
+  );
+}
+
+/** Reach stacker: satu objek per unit (beberapa saja), boom dalam pose diam. */
+function ReachStackerProps({ items }: { items: LayoutEquipment[] }) {
+  const night = useYard((s) => s.options.night);
+  const invalidate = useThree((s) => s.invalidate);
+  useLayoutEffect(() => {
+    setReachStackerNight(night);
+    invalidate();
+  }, [night, invalidate]);
+  const objects = useMemo(
+    () => items.map((it, i) => ({ it, obj: createReachStacker(it.code ?? `RS${String(i + 1).padStart(2, '0')}`) })),
+    [items],
+  );
+  return (
+    <>
+      {objects.map(({ it, obj }) => (
+        <primitive key={it.id} object={obj} position={[it.x, 0, it.z]} rotation-y={it.ry} dispose={null} />
+      ))}
+    </>
+  );
+}
+
 function PropAsset({
   url,
   items,
@@ -202,6 +264,8 @@ export function Equipment() {
   // RTG yang sedang bekerja digambar RtgWorks dengan transform per frame;
   // di sini ia dikeluarkan supaya tidak tergambar dua kali.
   const busyRtg = useTraffic((s) => s.busyRtg);
+  // RS yang sedang bekerja digambar bergerak oleh RsWorks, bukan di parkirnya.
+  const busyRs = useRsWorks((s) => s.busy);
   // RTG yang selesai bekerja berdiri di bay terakhirnya (lihat RtgWorks).
   const rtgPark = useTraffic((s) => s.rtgPark);
 
@@ -256,6 +320,9 @@ export function Equipment() {
     const itvList: Placement[] = [];
     const rtgAssetList: Placement[] = [];
     const rtgDetailList: (Placement & { railZ: number; variant: 1 | 2 })[] = [];
+    const warehouseList: LayoutEquipment[] = [];
+    const reachStackerList: LayoutEquipment[] = [];
+    const parkingList: LayoutEquipment[] = [];
     const stsList: Placement[] = [];
     // Rangka gate sama untuk masuk dan keluar; yang membedakan cuma warna papan
     // namanya, jadi rangkanya satu daftar dan papan namanya dua.
@@ -311,6 +378,13 @@ export function Equipment() {
           sy: s,
           sz: s,
         });
+      } else if (it.kind === 'reachStacker') {
+        if (!busyRs.includes(it.id)) reachStackerList.push(it);
+      } else if (it.kind === 'warehouse') {
+        warehouseList.push(it);
+      } else if (it.kind === 'parking') {
+        // Pelat lajur saja; alat yang diparkir ditaruh sendiri (tab Alat).
+        parkingList.push(it);
       } else if (it.kind === 'rtgDetail' || it.kind === 'rtgDetail2') {
         // Bentang dari blok terdekat, seperti RTG lain.
         rtgDetailList.push({
@@ -348,6 +422,9 @@ export function Equipment() {
       itvList,
       rtgAssetList,
       rtgDetailList,
+      warehouseList,
+      reachStackerList,
+      parkingList,
       stsList,
       gateList,
       gateMidList,
@@ -356,7 +433,7 @@ export function Equipment() {
       gateHalfIn,
       gateHalfOut,
     };
-  }, [data, layoutEquipment, busyRtg, rtgPark]);
+  }, [data, layoutEquipment, busyRtg, rtgPark, busyRs]);
 
   return (
     <group>
@@ -406,6 +483,9 @@ export function Equipment() {
         <PropAsset url={STS_MODEL_URL} items={placement.stsList} build={craneModelFor} />
       </Suspense>
       <RtgDetailProps items={placement.rtgDetailList} />
+      <WarehouseProps items={placement.warehouseList} />
+      <ParkingPads items={placement.parkingList} />
+      <ReachStackerProps items={placement.reachStackerList} />
     </group>
   );
 }

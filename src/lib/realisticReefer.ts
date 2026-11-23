@@ -27,6 +27,7 @@ import {
   withMarkings,
   drawSideBrand,
   makeMarks,
+  doorMetalMaterial,
   type PendingLogo,
   type Atlas,
   type Marks,
@@ -294,7 +295,7 @@ const flat = (a: number, b: number): P[] => [
   { s: b, off: 0, ns: 0, no: 1 },
 ];
 
-type Geo = { paint: THREE.BufferGeometry; dark: THREE.BufferGeometry; atlas: Atlas };
+type Geo = { paint: THREE.BufferGeometry; dark: THREE.BufferGeometry; metal: THREE.BufferGeometry; atlas: Atlas };
 const geoCache = new Map<number, Geo>();
 
 function buildGeometry(L: number): Geo {
@@ -354,7 +355,8 @@ function buildGeometry(L: number): Geo {
   );
 
   // ---- pintu & rangka (bersama GP)
-  addDoorEnd(paint, dark, L, doorUv(A), { ribs: false, handleY: -0.6, sealY: -0.05 });
+  const metal: THREE.BufferGeometry[] = [];
+  addDoorEnd(paint, dark, L, doorUv(A), { ribs: false, handleY: -0.6, sealY: -0.05, metal });
   addFrame(paint, dark, L, false);
 
   // ---- muka mesin (ujung -X)
@@ -491,7 +493,7 @@ function buildGeometry(L: number): Geo {
   // Kotak dalam gelap: di belakang ceruk mesin sampai di belakang daun pintu.
   dark.push(box(L - 0.43, H - 0.12, W - 0.16, (back + 0.02 + hx - 0.11) / 2, 0, 0));
 
-  const out: Geo = { paint: merge(paint.map(plainDecal)), dark: merge(dark), atlas: A };
+  const out: Geo = { paint: merge(paint.map(plainDecal)), dark: merge(dark), metal: merge(metal), atlas: A };
   geoCache.set(L, out);
   return out;
 }
@@ -544,6 +546,7 @@ export function realisticReeferModel(variant: Variant, liv: Livery = NARU, quali
     return [
       { name: `reefer-${liv.code}-${L}-paint`, geometry: geo.paint, material: paint },
       { name: `reefer-${liv.code}-${L}-dark`, geometry: geo.dark, material: dark },
+      { name: `reefer-${liv.code}-${L}-metal`, geometry: geo.metal, material: doorMetalMaterial() },
     ];
   };
 
@@ -555,5 +558,5 @@ export function realisticReeferModel(variant: Variant, liv: Livery = NARU, quali
 /** Jumlah segitiga per reefer (untuk README / uji). */
 export function realisticReeferTriangles(L: number = BOX.len20): number {
   const g = buildGeometry(L);
-  return triangleCount(g.paint) + triangleCount(g.dark);
+  return triangleCount(g.paint) + triangleCount(g.dark) + triangleCount(g.metal);
 }

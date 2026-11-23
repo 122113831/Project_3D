@@ -651,6 +651,66 @@ kedua. RTG detail pertama tidak diubah. Tersedia di **Sunting lapangan → Alat
   frame/trolley/spreader sama dengan RTG detail pertama, jadi animasi
   `RtgWorks` berlaku apa adanya.
 
+### Gudang (bangunan di lapangan)
+
+Bangunan prosedural (`src/lib/warehouse.ts`, spesifikasi di
+`src/lib/warehouseSpec.ts`) dengan jenis alat `warehouse`. Tersedia di
+**Sunting lapangan → Warehouse**, dengan empat ukuran siap pakai:
+
+| Kartu | Ukuran | Atap |
+|---|---|---|
+| Gudang kecil | 30 × 18 m, tinggi 7 m | pelana, tanpa kantor & kanopi |
+| Gudang sedang | 60 × 30 m, tinggi 9 m | pelana |
+| Gudang besar | 96 × 42 m, tinggi 12 m | gergaji, hijau |
+| Gudang CFS | 72 × 36 m, tinggi 10 m | datar + parapet, merah |
+
+- **Bentuk**: dinding seng gelombang di atas plint beton, pintu gulung,
+  platform dock bergaris, kanopi, kantor di ujung, jendela lajur atas, talang,
+  dan papan nama di dinding belakang. Lampu sorot, jendela, dan genangan
+  cahaya menyala saat mode malam.
+- **Pengaturan per gudang**: setelah ditaruh, panel properti mengatur panjang
+  (12–160 m), lebar (10–80 m), tinggi (4–18 m), atap, warna, dock, kanopi,
+  kantor, dan teks papan nama. Nilainya tersimpan di
+  `LayoutEquipment.building` dalam tata letak, jadi tidak perlu tabel baru.
+- **Kotak pilih editor dan pemeriksaan tata letak** memakai ukuran gudang itu
+  sendiri (`equipmentFootprint`). Gudang yang menimpa blok diberi peringatan.
+
+### Reach stacker (RS)
+
+Alat prosedural (`src/lib/reachStacker.ts`, jenis `reachStacker`) di
+**Sunting lapangan → Alat → "Reach stacker"**. Kartu truk bermuatan dan truk
+kosong dihapus dari tab Alat. Truk tetap muncul lewat lalu lintas gate.
+
+- **Bentuk** mengikuti gambar acuan:
+  - sasis kuning, gardan depan roda ganda, roda belakang tunggal di bawah
+    bobot penyeimbang
+  - kabin berkaca di tengah dengan pelindung atap, dek berpelat garis, pagar,
+    tangga, dan knalpot
+  - menara pivot belakang, boom teleskopik (luar kuning, dalam hitam), dan
+    dua silinder angkat
+  - spreader abu tua: kepala rotator, rangka melintang, balok ujung bergaris
+    kuning-hitam, dan twistlock
+  - sekitar 3.200 segitiga
+- **Kode alat** (mis. RS01) tertulis di boom. Isiannya di panel properti,
+  sama dengan `KODE_ALAT` di PRODUCTION_OPERATOR_NEW dan ALAT_OPERATOR.
+- **Siap dianimasikan**: `setPose(sudut, panjang)` menggerakkan boom dan
+  boom dalam. Spreader selalu datar dan silinder angkat ikut merentang.
+  `spreaderBottom()` memberi posisi alas twistlock untuk pose itu.
+
+### Parkir alat
+
+Tab **Sunting lapangan → Parkir** (`src/lib/parkingSpec.ts`, `src/lib/parking.ts`,
+jenis `parking`). Tiga preset: RS 4 lajur, RS 2 baris berhadapan, truk 6 lajur.
+
+- Area parkir hanya **pelat lajur**: aspal bergaris, tepi kuning, nomor lajur,
+  ganjal roda, papan nama "P". **Alatnya tidak ikut** — RS, truk, dan alat lain
+  ditaruh sendiri dari tab **Alat** (dengan kodenya masing-masing) lalu
+  digeser ke lajur.
+- **Lajur untuk**: RS (7,5 × 17 m) atau truk (4 × 18 m).
+- **Lajur per baris** 1–30 dan **1 atau 2 baris** (punggung bertemu). Tapak dan
+  kotak pilih ikut membesar.
+- Isian tersimpan di tata letak (`LayoutEquipment.parking`), tanpa tabel baru.
+
 ## Animasi
 
 - **RTG**: portal berjalan di rel ke bay, trolley dan empat kabel hoist
@@ -661,6 +721,22 @@ kedua. RTG detail pertama tidak diubah. Tersedia di **Sunting lapangan → Alat
   portal ikut berjalan kalau bay-nya berbeda. Datang lewat HiveMQ / POST
   `/api/yard/events` dengan `{"event":"shift","ctrNo":…,"block":…,"slot":…,"row":…,"tier":…}`,
   atau tombol **Contoh relokasi**.
+- **Reach stacker** (tombol **Jalankan RS**, `src/lib/rsPlan.ts` +
+  `RsWorks.tsx`): RS bebas berikutnya (yang ditaruh dari tab Alat) keluar dari
+  tempatnya — **maju atau mundur menurut letak jalan ke blok**: kalau blok ada
+  di depan moncong ia maju lalu berbelok ke lorong, kalau di belakang buritan ia
+  mundur sambil mengayun buritan sehingga moncongnya sejajar lorong — lalu
+  menyusuri **lorong dalam lapangan** ke blok terdekat — sisi blok dipilih yang
+  cukup lega di depannya (jarak kerja + buritan ±13 m sampai jalan atau blok
+  lain), garis antre di tengah lorong yang bebas, dan rute menghindari blok
+  serta tidak menyusuri ubin jalan (jalan hanya dilintasi) — menghadap tumpukan,
+  menurunkan boom, menjepit kontainer, mundur, membawanya rendah ke tumpukan
+  tujuan, menaruhnya, lalu kembali ke tempat semula lewat ujung lajur yang lebih dekat: dari depan
+  ia melewati mulut lajur lalu mundur masuk, dari belakang ia berbelok lalu maju
+  masuk — selalu berakhir dengan arah moncong semula. RS hanya
+  menjangkau **baris tepi** blok, tier ≤ 4, tujuan ≥ 3 bay; satu blok satu RS.
+  Kontainer hilang dari tumpukan saat dijepit dan muncul di tujuan saat dilepas,
+  sama seperti RTG. Hanya tampilan: tidak menulis ke database.
 - **Gate**: palang terangkat saat truk mendekat, truk berhenti ±2,5 detik di
   plat timbangan saat masuk dan keluar, dan mengantre di belakang truk lain.
 - **Truk**: tikungan dibulatkan menjadi busur, kecepatan turun menjelang
@@ -671,7 +747,11 @@ kedua. RTG detail pertama tidak diubah. Tersedia di **Sunting lapangan → Alat
   **Cuaca**: langsung dari Open-Meteo (hanya koordinat `DEPOT_LAT`/`DEPOT_LON`
   yang dikirim, disinggahkan 10 menit), atau hujan/kabut paksa untuk demo.
 - **Kamera**: terbang melengkung di atas lapangan, durasi menyesuaikan jarak;
-  **Ikuti RTG** mengikuti RTG yang bekerja dan mendekat sampai ±70 m.
+  **Ikuti alat** mengikuti RTG atau RS yang bekerja dan mendekat sampai ±70 m.
+- **Nama alat** (opsi tampilan, aktif bawaan): label di atas tiap RTG, RS, STS,
+  ITV, dan truk — kode alat dari panel properti (`Kode alat`), atau urut per
+  jenis bila kosong (RTG01, STS01, …).
+  Label RTG dan RS ikut bergerak saat alatnya bekerja ([equipmentNames.ts](src/lib/equipmentNames.ts)).
 
 ## Putar ulang hari dan layar monitor
 

@@ -7,7 +7,7 @@ import { readGateDay, readGateDays, readGateTrips } from '@/lib/depot';
  * GET ?limit=N        — N perjalanan terakhir, terbaru lebih dulu.
  * GET ?open=1         — yang sudah gate in tapi belum gate out.
  * GET ?day=YYYY-MM-DD — semua perjalanan satu hari, urut jam (putar ulang hari).
- * GET ?days=1         — hari-hari yang punya aktivitas, dengan jumlahnya.
+ * GET ?days=1[&limit=N] — N hari terakhir yang punya aktivitas (maks. 365), dengan jumlahnya.
  */
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -17,7 +17,7 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const day = url.searchParams.get('day');
     if (day) return NextResponse.json(await readGateDay(day));
-    if (url.searchParams.get('days') === '1') return NextResponse.json(await readGateDays());
+    if (url.searchParams.get('days') === '1') return NextResponse.json(await readGateDays(Number(url.searchParams.get('limit') ?? 30)));
     const limit = Number(url.searchParams.get('limit') ?? 20);
     return NextResponse.json(await readGateTrips(limit, url.searchParams.get('open') === '1'));
   } catch (e) {

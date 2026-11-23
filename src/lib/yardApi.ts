@@ -173,8 +173,8 @@ export async function fetchGateDay(day: string): Promise<GateTrip[]> {
 }
 
 /** Hari-hari yang punya gate in, terbaru lebih dulu. */
-export async function fetchGateDays(): Promise<{ day: string; trips: number }[]> {
-  const res = await fetch('/api/yard/trips?days=1', { cache: 'no-store' });
+export async function fetchGateDays(limit = 30): Promise<{ day: string; trips: number }[]> {
+  const res = await fetch(`/api/yard/trips?days=1&limit=${limit}`, { cache: 'no-store' });
   if (!res.ok) return [];
   return (await res.json()) as { day: string; trips: number }[];
 }

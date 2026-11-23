@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import tls from 'node:tls';
 import mqtt, { type MqttClient } from 'mqtt';
 import { normalizeEvent, type LiveEvent } from './liveEvents';
 
@@ -102,6 +105,10 @@ export const recentEvents = (): LiveEvent[] => [...hub().recent];
  *   MQTT_TOPIC     mis. depot/gate/#        (default: yard/gate/#)
  *   MQTT_USERNAME, MQTT_PASSWORD           (opsional)
  *   MQTT_CLIENT_ID                          (opsional; default yard3d-<acak>)
+ *   MQTT_CA_FILE   sertifikat akar tambahan (PEM), relatif ke folder proyek
+ *                  — untuk jaringan yang mencegat TLS (mis. Check Point
+ *                  Harmony SASE). Ditambahkan ke daftar bawaan Node, bukan
+ *                  menggantikannya; verifikasi sertifikat tetap menyala.
  */
 function ensureMqtt() {
   const h = hub();
@@ -114,7 +121,20 @@ function ensureMqtt() {
   h.status.mqttUrl = url.replace(/\/\/[^@]*@/, '//***@');
   h.status.topic = topic;
 
+  // Sertifikat akar tambahan: bawaan Node + berkas MQTT_CA_FILE. NODE_EXTRA_CA_CERTS
+  // tidak bisa dipakai karena dibaca Node SEBELUM .env dimuat Next.js.
+  let ca: string[] | undefined;
+  const caFile = process.env.MQTT_CA_FILE;
+  if (caFile) {
+    try {
+      ca = [...tls.rootCertificates, fs.readFileSync(path.resolve(process.cwd(), caFile), 'utf8')];
+    } catch (e) {
+      h.status.lastError = `MQTT_CA_FILE tidak terbaca: ${(e as Error).message}`;
+    }
+  }
+
   const client = mqtt.connect(url, {
+    ...(ca ? { ca } : {}),
     username: process.env.MQTT_USERNAME || undefined,
     password: process.env.MQTT_PASSWORD || undefined,
     clientId: process.env.MQTT_CLIENT_ID || `yard3d-${Math.random().toString(16).slice(2, 10)}`,

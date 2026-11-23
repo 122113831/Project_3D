@@ -74,6 +74,8 @@ export type ViewOptions = {
   kiosk: boolean;
   /** Papan kapasitas di atas tiap blok: persen terisi dan sisa box. */
   blockInfo: boolean;
+  /** Papan nama di atas tiap alat (RS01, RTG02, …). */
+  equipLabels: boolean;
 };
 
 const EMPTY_FILTER: YardFilter = { lines: [], statuses: [], sizes: [], types: [] };
@@ -166,6 +168,7 @@ export const useYard = create<YardState>((set, get) => ({
     weather: 'off',
     kiosk: false,
     blockInfo: true,
+    equipLabels: true,
   },
   perf: { fps: 0, frameMs: 0, calls: 0, triangles: 0, programs: 0, renderer: '', dpr: 0 },
 
@@ -174,8 +177,7 @@ export const useYard = create<YardState>((set, get) => ({
     const source = opts?.source ?? get().source;
     set({ loading: true, error: null, fill, source, selected: null, located: null });
     try {
-      const url =
-        source === 'demo' ? `/api/yard?source=demo&fill=${fill.toFixed(2)}` : '/api/yard';
+      const url = '/api/yard';
       const res = await fetch(url, { cache: 'no-store' });
       const body = await res.json();
       // Route mengirim { error } pada 503 — pesannya jauh lebih berguna

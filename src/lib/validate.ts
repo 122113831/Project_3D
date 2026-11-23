@@ -1,7 +1,7 @@
 import { PITCH, ROAD, ROAD_ARMS } from './constants';
 import {
   blockSize,
-  EQUIPMENT_FOOTPRINT,
+  equipmentFootprint,
   type LayoutBlock,
   type LayoutEquipment,
   type LayoutRoad,
@@ -122,7 +122,7 @@ export function pushRoadClear(
 }
 
 export function equipObb(e: LayoutEquipment): Obb {
-  const f = EQUIPMENT_FOOTPRINT[e.kind];
+  const f = equipmentFootprint(e);
   return { cx: e.x, cz: e.z, sx: f.x, sz: f.z, ry: e.ry };
 }
 
@@ -240,7 +240,7 @@ export function validateLayout(input: {
         out.push({
           id: `equip-in-block:${e.id}`,
           level: 'warn',
-          text: `${e.kind === 'lamp' ? 'Tiang lampu' : GATE_KINDS.has(e.kind) ? 'Gate' : 'Alat'} berdiri di dalam blok ${b.id}`,
+          text: `${e.kind === 'lamp' ? 'Tiang lampu' : e.kind === 'warehouse' ? 'Gudang' : e.kind === 'parking' ? 'Parkir alat' : GATE_KINDS.has(e.kind) ? 'Gate' : 'Alat'} berdiri di dalam blok ${b.id}`,
           x: e.x,
           z: e.z,
           span: 40,

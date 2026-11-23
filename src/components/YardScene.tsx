@@ -17,7 +17,9 @@ import { Picking } from './three/Picking';
 import { Selection } from './three/Selection';
 import { AlertMarkers } from './three/AlertMarkers';
 import { BlockInfo } from './three/BlockInfo';
+import { EquipmentLabels } from './three/EquipmentLabels';
 import { RtgWorks } from './three/RtgWorks';
+import { RsWorks } from './three/RsWorks';
 import { SlotGrid } from './three/SlotGrid';
 import { Traffic } from './three/Traffic';
 import { YardContainers } from './three/YardContainers';
@@ -101,6 +103,7 @@ export default function YardScene() {
       <BlockLabels />
       {/* Papan kapasitas tiap blok: persen terisi dan sisa box. */}
       <BlockInfo />
+      <EquipmentLabels />
       <YardContainers />
       {/* Kisi slot di editor, dan kotak merah slot terkunci di luar editor. */}
       <SlotGrid />
@@ -109,6 +112,7 @@ export default function YardScene() {
       <Traffic />
       {/* RTG yang menjemput/menaruh kontainer untuk truk yang menunggu. */}
       <RtgWorks />
+      <RsWorks />
       {/* Penanda berdenyut: bahaya, rusak, lewat batas dwell. */}
       <AlertMarkers />
       <Selection />

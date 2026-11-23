@@ -476,6 +476,12 @@ export type PendingLogo = {
   w: number;
   h: number;
   body: string;
+  /**
+   * Warna tulisan livery. Logo yang kontrasnya kurang terhadap cat digambar
+   * SATU WARNA ini langsung di atas cat (tanpa papan latar), seperti logo cat
+   * putih di kontainer sungguhan.
+   */
+  ink?: string;
   /** Potongan gambar yang dipakai, pecahan 0–1 [x, y, w, h] dari logo terpangkas. */
   crop?: [number, number, number, number];
 };
@@ -535,6 +541,14 @@ export function drawSideBrand(
     });
     return;
   }
+  if (SIDE_LAYOUT[liv.code] === 'rcl-text') {
+    drawRcl(g, length, m, liv.textColor);
+    return;
+  }
+  if (SIDE_LAYOUT[liv.code] === 'cmacgm-center') {
+    drawCmaCgm(g, length, m, liv.textColor);
+    return;
+  }
   if (SIDE_LAYOUT[liv.code] === 'seaco-top') {
     drawSeaco(g, length, m);
     return;
@@ -561,7 +575,7 @@ export function drawSideBrand(
   // kotak persegi yang membuat logo lebar mengecil.
   if (hasLogo && !builtin && !text && liv.logoFile) {
     const h = m(H * (is40 ? liv.logoScale : liv.logoScale * 0.9));
-    pending.push({ file: liv.logoFile, cx: m(length / 2), cy, w: avail * 0.8, h, body: liv.bodyColor });
+    pending.push({ file: liv.logoFile, cx: m(length / 2), cy, w: avail * 0.8, h, body: liv.bodyColor, ink: liv.textColor });
     return;
   }
 
@@ -585,7 +599,7 @@ export function drawSideBrand(
   const textX = logoFirst ? lx + logo + gap : lx;
   if (hasLogo) {
     if (builtin === 'maersk-star') drawLogo(g, logoCx, cy, logo);
-    else if (liv.logoFile) pending.push({ file: liv.logoFile, cx: logoCx, cy, w: logo, h: logo, body: liv.bodyColor });
+    else if (liv.logoFile) pending.push({ file: liv.logoFile, cx: logoCx, cy, w: logo, h: logo, body: liv.bodyColor, ink: liv.textColor });
   }
   if (text) drawBrand(g, text, liv.textColor, textX, cy + textH * 0.04, textH, spacing);
 }
@@ -767,6 +781,88 @@ function drawKLine(
   g.textAlign = 'right';
   g.textBaseline = 'top';
   g.fillText('www.kline.com', m(length - (is40 ? 1.9 : 1.75)), m(0.3));
+  g.restore();
+}
+
+/**
+ * RCL: huruf "R C L" putih bergaya serif tebal, besar, berjarak lebar, di
+ * tengah dinding samping — seperti kontainer RCL aslinya (tanpa oval logo).
+ */
+function drawRcl(g: CanvasRenderingContext2D, length: number, m: (v: number) => number, color: string) {
+  const H = BOX.height;
+  const is40 = length > 9;
+  g.save();
+  g.fillStyle = color;
+  g.textAlign = 'center';
+  g.textBaseline = 'alphabetic';
+  const h = m(is40 ? 1.3 : 1.12);
+  g.font = `700 ${h}px Georgia, 'Times New Roman', serif`;
+  const gap = h * (is40 ? 1.25 : 1.0);
+  const cx = m(length * 0.53);
+  const t = g.measureText('R');
+  const base = m(H * 0.5) + (t.actualBoundingBoxAscent - t.actualBoundingBoxDescent) / 2;
+  ['R', 'C', 'L'].forEach((ch, i) => g.fillText(ch, cx + (i - 1) * gap, base));
+  g.restore();
+}
+
+/**
+ * CMA CGM: tulisan "CMA CGM" tebal di tengah dinding (sedikit ke kanan), dan
+ * dua sapuan kuas — satu melengkung naik dari kiri di atas tulisan, satu dari
+ * bawah tulisan naik ke kanan — seperti logo pada kontainer aslinya.
+ */
+function drawCmaCgm(g: CanvasRenderingContext2D, length: number, m: (v: number) => number, color: string) {
+  const H = BOX.height;
+  const is40 = length > 9;
+  g.save();
+  g.fillStyle = color;
+  // Tulisan: tinggi huruf ±0,5 m (40ft), dipersempit bila tak muat (20ft).
+  let h = m(is40 ? 0.72 : 0.56);
+  const font = (px: number) => `900 ${px}px 'Arial Black', 'Segoe UI Black', Arial, sans-serif`;
+  g.font = font(h);
+  const avail = m(length - 2 * 0.7) * 0.7;
+  let w = g.measureText('CMA CGM').width;
+  if (w > avail) {
+    h *= avail / w;
+    g.font = font(h);
+    w = g.measureText('CMA CGM').width;
+  }
+  const cx = m(length * (is40 ? 0.56 : 0.52));
+  const cy = m(H * 0.53);
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText('CMA CGM', cx, cy);
+  // Sapuan kuas: bentuk tertutup dari dua kurva, tebal di tengah, runcing di ujung.
+  const swoosh = (pts: [number, number][], thick: number) => {
+    const [a, c1, c2, b] = pts;
+    g.beginPath();
+    g.moveTo(a[0], a[1]);
+    g.bezierCurveTo(c1[0], c1[1] - thick, c2[0], c2[1] - thick, b[0], b[1]);
+    g.bezierCurveTo(c2[0], c2[1] + thick, c1[0], c1[1] + thick, a[0], a[1]);
+    g.closePath();
+    g.fill();
+  };
+  const L = w / 2;
+  const t = h * 0.12;
+  // Atas: dari kiri atas huruf "A" naik melengkung ke kanan atas.
+  swoosh(
+    [
+      [cx - L * 0.72, cy - h * 0.62],
+      [cx - L * 0.6, cy - h * 1.1],
+      [cx - L * 0.32, cy - h * 1.45],
+      [cx - L * 0.02, cy - h * 1.62],
+    ],
+    t,
+  );
+  // Bawah: dari bawah "CG" naik ke kanan, berakhir di bawah "M".
+  swoosh(
+    [
+      [cx + L * 0.04, cy + h * 1.42],
+      [cx + L * 0.3, cy + h * 1.32],
+      [cx + L * 0.55, cy + h * 1.0],
+      [cx + L * 0.72, cy + h * 0.6],
+    ],
+    t,
+  );
   g.restore();
 }
 
@@ -1112,6 +1208,11 @@ export type DoorOpts = {
   sealY: number;
   /** Detail penuh (segmen batang); default ya. */
   hi?: boolean;
+  /**
+   * Penampung bagian logam galvanis (batang kunci, gagang, cam keeper,
+   * pemandu). Tanpa ini bagian itu ikut dicat warna badan.
+   */
+  metal?: THREE.BufferGeometry[];
 };
 
 /**
@@ -1188,24 +1289,26 @@ export function addDoorEnd(
       paint.push(box(0.026, 0.075, 0.15, doorX + 0.006, y, zh - leaf * 0.07));
       paint.push(rod(0.02, 0.11, doorX + 0.014, y, zh + leaf * 0.012, 'y', hi ? 8 : 5));
     }
-    // Dua batang kunci per daun.
+    // Dua batang kunci per daun — logam galvanis (silver), bukan cat badan,
+    // seperti kontainer sungguhan.
+    const metal = o.metal ?? paint;
     for (const zr of [0.24, 0.74]) {
       const z = leaf * zr;
       const rx = doorX + 0.034;
-      paint.push(rod(0.022, H - 0.2, rx, 0, z, 'y', hi ? 12 : 7));
+      metal.push(rod(0.022, H - 0.2, rx, 0, z, 'y', hi ? 12 : 7));
       // Cam keeper atas & bawah (dibaut ke header/sill) dan cam di ujung batang.
-      paint.push(box(0.05, 0.085, 0.085, rx - 0.006, hy - 0.115, z));
-      paint.push(box(0.05, 0.085, 0.085, rx - 0.006, -hy + 0.105, z));
+      metal.push(box(0.05, 0.085, 0.085, rx - 0.006, hy - 0.115, z));
+      metal.push(box(0.05, 0.085, 0.085, rx - 0.006, -hy + 0.105, z));
       dark.push(rod(0.012, 0.09, rx + 0.022, hy - 0.115, z, 'z', hi ? 6 : 4));
       dark.push(rod(0.012, 0.09, rx + 0.022, -hy + 0.105, z, 'z', hi ? 6 : 4));
       // Pemandu batang.
-      for (const gy of [0.72, 0.2, -0.55, -0.92]) paint.push(box(0.04, 0.06, 0.07, rx - 0.012, gy, z));
+      for (const gy of [0.72, 0.2, -0.55, -0.92]) metal.push(box(0.04, 0.06, 0.07, rx - 0.012, gy, z));
       // Gagang horizontal di bawah tengah, ke arah yang sama untuk satu daun.
       const dir = -leaf;
       const hy0 = o.handleY;
-      paint.push(box(0.035, 0.07, 0.06, rx + 0.012, hy0, z));
-      paint.push(rod(0.014, 0.3, rx + 0.032, hy0, z + dir * 0.15, 'z', hi ? 8 : 5));
-      paint.push(box(0.03, 0.06, 0.04, rx + 0.02, hy0, z + dir * 0.3));
+      metal.push(box(0.035, 0.07, 0.06, rx + 0.012, hy0, z));
+      metal.push(rod(0.014, 0.3, rx + 0.032, hy0, z + dir * 0.15, 'z', hi ? 8 : 5));
+      metal.push(box(0.03, 0.06, 0.04, rx + 0.02, hy0, z + dir * 0.3));
     }
   }
   // Kotak segel di tepi daun kanan (dilihat dari belakang = -Z), setinggi gagang.
@@ -1261,7 +1364,22 @@ export function addFrame(
 
 }
 
-type Geo = { paint: THREE.BufferGeometry; dark: THREE.BufferGeometry; atlas: Atlas };
+type Geo = { paint: THREE.BufferGeometry; dark: THREE.BufferGeometry; metal: THREE.BufferGeometry; atlas: Atlas };
+
+/**
+ * Logam galvanis pintu (batang kunci, gagang): satu material bersama untuk
+ * semua kontainer realistis. Mengilap dan sedikit kebiruan seperti baja
+ * berlapis seng.
+ */
+let doorMetalMat: THREE.MeshPhongMaterial | null = null;
+export function doorMetalMaterial() {
+  doorMetalMat ??= new THREE.MeshPhongMaterial({
+    color: new THREE.Color('#BFC4C9'),
+    shininess: 70,
+    specular: new THREE.Color('#9da4ab'),
+  });
+  return doorMetalMat;
+}
 
 const geoCache = new Map<string, Geo>();
 
@@ -1366,13 +1484,14 @@ function buildGeometry(L: number, q: Quality = 'yard'): Geo {
   paint.push(rbox(0.11, 0.18, W - 2 * POST, -hx + 0.06, -hy + 0.09, 0));
   paint.push(rbox(0.11, 0.16, W - 2 * POST, -hx + 0.06, hy - 0.08, 0));
 
-  addDoorEnd(paint, dark, L, dUv, { ribs: true, handleY: -0.18, sealY: -0.12, hi });
+  const metal: THREE.BufferGeometry[] = [];
+  addDoorEnd(paint, dark, L, dUv, { ribs: true, handleY: -0.18, sealY: -0.12, hi, metal });
   addFrame(paint, dark, L, true);
 
   // Kotak dalam gelap: menutup celah; di ujung pintu berhenti di belakang daun.
   dark.push(box(L - 0.18, H - 0.12, W - 0.16, -0.02, 0, 0));
 
-  const out: Geo = { paint: merge(paint.map(plainDecal)), dark: merge(dark), atlas: A };
+  const out: Geo = { paint: merge(paint.map(plainDecal)), dark: merge(dark), metal: merge(metal), atlas: A };
   geoCache.set(`${L}|${q}`, out);
   return out;
 }
@@ -1505,12 +1624,20 @@ function knockOutBackground(d: Uint8ClampedArray, w: number, h: number): boolean
  * Banyak berkas logo punya ruang kosong lebar (Maersk.png 960×960 dengan logo
  * hanya di pita tengah) — tanpa dipangkas, logonya tergambar kecil.
  */
+/** Sisi terpanjang logo saat dianalisis. Logo digambar ≤ ±300 px di atlas;
+ *  menganalisis PNG 960–2000 px utuh (flood-fill latar per piksel) memakan
+ *  detik-detik CPU saat halaman dibuka. */
+const LOGO_MAX = 512;
+
 function analyzeLogo(img: HTMLImageElement) {
   const c = document.createElement('canvas');
-  c.width = img.naturalWidth || img.width;
-  c.height = img.naturalHeight || img.height;
+  const iw = img.naturalWidth || img.width;
+  const ih = img.naturalHeight || img.height;
+  const k = Math.min(1, LOGO_MAX / Math.max(iw, ih));
+  c.width = Math.max(1, Math.round(iw * k));
+  c.height = Math.max(1, Math.round(ih * k));
   const g = c.getContext('2d', { willReadFrequently: true })!;
-  g.drawImage(img, 0, 0);
+  g.drawImage(img, 0, 0, c.width, c.height);
   const imgData = g.getImageData(0, 0, c.width, c.height);
   const d = imgData.data;
   if (knockOutBackground(d, c.width, c.height)) g.putImageData(imgData, 0, 0);
@@ -1537,12 +1664,62 @@ function analyzeLogo(img: HTMLImageElement) {
   return { canvas: c, sx: x0, sy: y0, sw: x1 - x0 + 1, sh: y1 - y0 + 1, lum: relLum(sr / n, sg / n, sb / n), lums };
 }
 
+type LogoAnalysis = ReturnType<typeof analyzeLogo>;
+/**
+ * Satu unduhan + satu analisis per BERKAS logo. Berkas yang sama dipakai
+ * banyak atlas (20ft/40ft × GP/reefer/tank × sisi), dan dulu dianalisis ulang
+ * untuk masing-masing — puluhan long task saat halaman dibuka.
+ */
+const logoCache = new Map<string, Promise<LogoAnalysis | null>>();
+function loadLogo(file: string): Promise<LogoAnalysis | null> {
+  let hit = logoCache.get(file);
+  if (!hit) {
+    hit = new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(analyzeLogo(img));
+      img.onerror = () => {
+        console.warn('[livery] logo tidak ditemukan:', file);
+        resolve(null);
+      };
+      img.src = `/liveries/${encodeURIComponent(file)}`;
+    });
+    logoCache.set(file, hit);
+  }
+  return hit;
+}
+
+/**
+ * Tekstur atlas dibuat ulang PALING BANYAK sekali per frame, berapa pun logo
+ * yang selesai di frame itu. Dulu tiap logo membuat dan mengunggah atlas
+ * baru — puluhan unggahan tekstur besar berturut-turut saat halaman dibuka.
+ */
+const dirtyMarks = new Map<Marks, HTMLCanvasElement>();
+let refreshQueued = false;
+function queueMarksRefresh(marks: Marks, canvas: HTMLCanvasElement) {
+  dirtyMarks.set(marks, canvas);
+  if (refreshQueued) return;
+  refreshQueued = true;
+  requestAnimationFrame(() => {
+    refreshQueued = false;
+    for (const [m, c] of dirtyMarks) {
+      // Tekstur BARU, bukan needsUpdate pada yang lama: di GPU tertentu
+      // (terukur di ANGLE/D3D11) unggah ulang atlas 20ft yang sudah terpasang
+      // tidak terbawa, sehingga logo tidak pernah tampak. Tekstur baru selalu
+      // diunggah utuh, dan semua material atlas ini memakai uniform yang sama.
+      const old = m.uniform.value;
+      m.uniform.value = makeMarksTexture(c);
+      old.dispose();
+    }
+    dirtyMarks.clear();
+    marksListeners.forEach((fn) => fn());
+  });
+}
+
 export function loadPendingLogos(canvas: HTMLCanvasElement, marks: Marks, pending: PendingLogo[]) {
   const g = canvas.getContext('2d')!;
   for (const p of pending) {
-    const img = new Image();
-    img.onload = () => {
-      const a = analyzeLogo(img);
+    void loadLogo(p.file).then((a) => {
+      if (!a) return;
       const c = p.crop ?? [0, 0, 1, 1];
       const src = { sx: a.sx + a.sw * c[0], sy: a.sy + a.sh * c[1], sw: a.sw * c[2], sh: a.sh * c[3] };
       const k = Math.min(p.w / src.sw, p.h / src.sh);
@@ -1562,23 +1739,46 @@ export function loadPendingLogos(canvas: HTMLCanvasElement, marks: Marks, pendin
       const pool = ink.length ? ink : a.lums;
       const readable = pool.length ? pool.filter((l) => ratio(l) >= 2).length / pool.length : 1;
       if (readable < 0.5) {
-        const pad = h * 0.18;
-        roundRect(g, p.cx - w / 2 - pad, p.cy - h / 2 - pad, w + 2 * pad, h + 2 * pad, pad * 0.8);
-        g.fillStyle = a.lum < 0.35 ? '#f4f5f6' : '#1c1e20';
-        g.fill();
+        // Tanpa papan latar: logo digambar satu warna (warna tulisan livery)
+        // langsung di atas cat. Isian sangat terang di dalam logo (oval RCL,
+        // latar kotak di berkas) dibuang dulu — kalau ikut diwarnai, logonya
+        // jadi gumpalan polos tanpa bentuk.
+        const tw = Math.max(1, Math.round(w));
+        const th = Math.max(1, Math.round(h));
+        const tc = document.createElement('canvas');
+        tc.width = tw;
+        tc.height = th;
+        const tg = tc.getContext('2d', { willReadFrequently: true })!;
+        tg.drawImage(a.canvas, src.sx, src.sy, src.sw, src.sh, 0, 0, tw, th);
+        const img = tg.getImageData(0, 0, tw, th);
+        const d = img.data;
+        const ink = (p.ink ?? '#ffffff').replace('#', '');
+        const ir = parseInt(ink.slice(0, 2), 16);
+        const ig = parseInt(ink.slice(2, 4), 16);
+        const ib = parseInt(ink.slice(4, 6), 16);
+        // Kalau tintanya sendiri terang, buang isian terang; kalau gelap, buang isian gelap.
+        const inkLight = relLum(ir, ig, ib) > 0.5;
+        for (let i = 0; i < d.length; i += 4) {
+          if (d[i + 3] === 0) continue;
+          const l = relLum(d[i], d[i + 1], d[i + 2]);
+          // Isian = piksel yang nyaris sewarna tinta (dekat putih untuk tinta
+          // putih): itu latar/isian logo, bukan garisnya.
+          const fill = inkLight ? l > 0.8 : l < 0.04;
+          if (fill) {
+            d[i + 3] = 0;
+            continue;
+          }
+          d[i] = ir;
+          d[i + 1] = ig;
+          d[i + 2] = ib;
+        }
+        tg.putImageData(img, 0, 0);
+        g.drawImage(tc, p.cx - w / 2, p.cy - h / 2, w, h);
+      } else {
+        g.drawImage(a.canvas, src.sx, src.sy, src.sw, src.sh, p.cx - w / 2, p.cy - h / 2, w, h);
       }
-      g.drawImage(a.canvas, src.sx, src.sy, src.sw, src.sh, p.cx - w / 2, p.cy - h / 2, w, h);
-      // Tekstur BARU, bukan needsUpdate pada yang lama: di GPU tertentu
-      // (terukur di ANGLE/D3D11) unggah ulang atlas 20ft yang sudah terpasang
-      // tidak terbawa, sehingga logo tidak pernah tampak. Tekstur baru selalu
-      // diunggah utuh, dan semua material atlas ini memakai uniform yang sama.
-      const old = marks.uniform.value;
-      marks.uniform.value = makeMarksTexture(canvas);
-      old.dispose();
-      marksListeners.forEach((fn) => fn());
-    };
-    img.onerror = () => console.warn('[livery] logo tidak ditemukan:', p.file);
-    img.src = `/liveries/${encodeURIComponent(p.file)}`;
+      queueMarksRefresh(marks, canvas);
+    });
   }
 }
 
@@ -1750,6 +1950,7 @@ export function realisticContainerModel(variant: Variant, liv: Livery = MAERSK, 
     return [
       { name: `gp-${liv.code}-${L}-paint`, geometry: geo.paint, material: paint },
       { name: `gp-${liv.code}-${L}-dark`, geometry: geo.dark, material: dark },
+      { name: `gp-${liv.code}-${L}-metal`, geometry: geo.metal, material: doorMetalMaterial() },
     ];
   };
 
@@ -1761,5 +1962,5 @@ export function realisticContainerModel(variant: Variant, liv: Livery = MAERSK, 
 /** Jumlah segitiga per kontainer (untuk README / uji). */
 export function realisticTriangles(L: number = BOX.len20, quality: Quality = 'yard'): number {
   const g = buildGeometry(L, quality);
-  return triangleCount(g.paint) + triangleCount(g.dark);
+  return triangleCount(g.paint) + triangleCount(g.dark) + triangleCount(g.metal);
 }

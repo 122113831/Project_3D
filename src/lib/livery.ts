@@ -57,8 +57,12 @@ export const BUILTIN_LOGO: Record<string, 'maersk-star'> = { MAERSK_GP: 'maersk-
  */
 export const SIDE_LAYOUT: Record<
   string,
-  'spil-stripe' | 'tanto-stripe' | 'ctp-stripe' | 'meratus-top' | 'kline-center' | 'seaco-top' | 'seaco-reefer'
+  'spil-stripe' | 'tanto-stripe' | 'ctp-stripe' | 'meratus-top' | 'kline-center' | 'seaco-top' | 'seaco-reefer' | 'cmacgm-center' | 'rcl-text'
 > = {
+  // RCL: "R C L" putih serif besar berjarak lebar (foto kontainer asli).
+  RCL_GP: 'rcl-text',
+  // CMA CGM: "CMA CGM" putih tebal di tengah + dua sapuan putih (foto asli).
+  CMACGM_GP: 'cmacgm-center',
   // SEACO reefer: "seaco" merah besar di kiri atas badan putih.
   SEACO_REEFER: 'seaco-reefer',
   // Reefer agen lain memakai tata letak GP-nya, dengan warna dari livery

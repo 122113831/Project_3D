@@ -8,14 +8,11 @@ import { BOX, PITCH, RTG, RTG_ASSET, rtgAssetScale, rtgSpanScale } from '@/lib/c
 import { craneModelFor, RTG_CRANE_MODEL_URL, type ModelPart } from '@/lib/containerModel';
 import { generateEquipment } from '@/lib/equipment';
 import {
-  createContainerGeometry,
   createRtgGeometry,
   createRtgSpreaderGeometry,
   SPREADER_Y,
 } from '@/lib/geometry';
 import type { LayoutEquipment } from '@/lib/layout';
-import { colorFor } from '@/lib/palette';
-import { useLivery } from '@/store/useLivery';
 import type { YardBlock } from '@/lib/types';
 import { containerPosition } from '@/lib/yard';
 import { useEditor } from '@/store/useEditor';
@@ -24,6 +21,7 @@ import { useYard } from '@/store/useYard';
 import { useYardView } from '@/store/useYardView';
 import { CRANE_REST, splitCrane, type SplitCrane } from '@/lib/craneSplit';
 import { dropRtgPose, setRtgPose } from './trafficRegistry';
+import { CarriedContainer } from './CarriedContainer';
 import { RTG_DETAIL, rtgDetailModel, rtgDetailRailZ } from '@/lib/rtgDetail';
 import { rtgDetail2Model } from '@/lib/rtgDetail2';
 
@@ -240,7 +238,7 @@ type Nodes = {
   aTrolley: THREE.Group | null;
   aSpreader: THREE.Group | null;
   spreader: THREE.Mesh | null;
-  load: THREE.Mesh | null;
+  load: THREE.Object3D | null;
   trolley: THREE.Mesh | null;
   cables: THREE.LineSegments | null;
   beacon: THREE.Mesh | null;
@@ -251,9 +249,6 @@ function Works() {
   const data = useYardView();
   const layoutEquipment = useEditor((s) => s.layout?.equipment);
   const jobs = useTraffic((s) => s.rtgJobs);
-  const colorMode = useYard((s) => s.colorMode);
-  const paintStyle = useYard((s) => (s.options.detail ? s.options.containerStyle : 'asset'));
-  const resolveLivery = useLivery((s) => s.resolve);
   const invalidate = useThree((s) => s.invalidate);
 
   const gltf = useGLTF(RTG_CRANE_MODEL_URL, false, false);
@@ -263,8 +258,6 @@ function Works() {
     () => ({
       rtg: createRtgGeometry(),
       spreader: createRtgSpreaderGeometry(),
-      box20: createContainerGeometry(BOX.len20),
-      box40: createContainerGeometry(BOX.len40),
     }),
     [],
   );
@@ -541,9 +534,6 @@ function Works() {
           (cur as Record<string, unknown>)[key] = el;
           nodes.current.set(job.id, cur);
         };
-        // Cat badan livery kontainer ini (prefix → merek) saat pewarnaan mati.
-        const livery = paintStyle === 'real' ? resolveLivery(job.container) : null;
-        const color = colorFor(job.container, colorMode, paintStyle, livery?.bodyColor);
         return (
           <group key={job.id}>
             {a.base && (
@@ -563,9 +553,8 @@ function Works() {
               </group>
             )}
             <mesh ref={ref('spreader')} geometry={geo.spreader} material={mats.spreader} rotation-y={a.base?.ry ?? 0} />
-            <mesh ref={ref('load')} geometry={job.container.size === 40 ? geo.box40 : geo.box20} visible={false}>
-              <meshPhongMaterial color={color} shininess={14} />
-            </mesh>
+            {/* Aset yang SAMA dengan di tumpukan & di truk (livery, nomor, rona). */}
+            <CarriedContainer ref={ref('load')} c={job.container} visible={false} />
             {a.base && (
               <>
                 {a.base.kind === 'rtg' && (
