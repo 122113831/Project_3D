@@ -141,6 +141,8 @@ export type YardBlock = {
    * berdiri sendiri (ubin jalan), blok hanya punya lajur layanan. Kosong = true.
    */
   ownRoad?: boolean;
+  /** Blok khusus reefer: punya rak listrik (reefer rack) di sisi panjangnya. */
+  reefer?: boolean;
 };
 
 /** Shipping line yang benar-benar ada di data, bukan daftar tetap. */

@@ -61,8 +61,8 @@ async function run(id: string) {
       truckLane: block.truckLane ?? 'L',
       slotStart: block.slotStart ?? 'L',
     });
-    setNote(`Posisi blok ${id} tersimpan.`);
+    setNote(`Block ${id} position saved.`);
   } catch (e) {
-    setNote(`Gagal menyimpan posisi blok ${id}: ${e instanceof Error ? e.message : String(e)}`);
+    setNote(`Failed to save block ${id} position: ${e instanceof Error ? e.message : String(e)}`);
   }
 }

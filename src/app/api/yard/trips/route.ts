@@ -22,7 +22,7 @@ export async function GET(request: Request) {
     return NextResponse.json(await readGateTrips(limit, url.searchParams.get('open') === '1'));
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    const status = message.startsWith('Tanggal harus') ? 400 : 503;
+    const status = message.startsWith('Date must be') ? 400 : 503;
     if (status === 503) console.error('[depot] gagal membaca GATE_HIST:', message);
     return NextResponse.json({ error: message }, { status });
   }

@@ -17,7 +17,7 @@ import {
   tankModelPlainFor,
   type ModelPart,
 } from '@/lib/containerModel';
-import { realisticContainerModel } from '@/lib/realisticContainer';
+import { isOpenTop, realisticContainerModel } from '@/lib/realisticContainer';
 import { isoFor } from '@/lib/containerCode';
 import { useCodedGeometry } from '@/components/three/useCodedGeometry';
 import { realisticReeferModel } from '@/lib/realisticReefer';
@@ -107,7 +107,7 @@ function Model({ c }: { c: YardContainer }) {
             ? realisticReeferModel(plain ? 'plain' : 'tint', livery ?? undefined, 'inspect')
             : (plain ? reeferModelPlainFor : reeferModelFor)(reefer)
           : style === 'real'
-            ? realisticContainerModel(plain ? 'plain' : 'tint', livery ?? undefined, 'inspect')
+            ? realisticContainerModel(plain ? 'plain' : 'tint', livery ?? undefined, 'inspect', isOpenTop(c))
             : (plain ? containerModelPlainFor : containerModelFor)(container);
     return (c.size === 40 && model.parts40) || model.parts20;
   }, [c, plain, style, livery, container, reefer, tank]);
@@ -128,7 +128,11 @@ function Model({ c }: { c: YardContainer }) {
       return m;
     });
   }, [parts, c, colorMode, plain, style, livery?.bodyColor]);
-  useEffect(() => () => materials.forEach((m) => m.dispose()), [materials]);
+  // Dibuang DENGAN JEDA, setelah material penggantinya sudah tergambar. Kalau
+  // langsung dibuang, program shader-nya ikut dihancurkan (tidak ada lagi
+  // material yang memakainya) lalu dikompilasi ulang untuk material baru yang
+  // shadernya identik — ratusan ms macet tiap ganti kontainer.
+  useEffect(() => () => void setTimeout(() => materials.forEach((m) => m.dispose()), 1500), [materials]);
 
   // Nomor asli kontainer ini di badan model realistis.
   const code = useMemo(() => [{ no: c.no, iso: isoFor(c) }], [c]);
@@ -209,13 +213,20 @@ function FitCamera({ length }: { length: number }) {
   return null;
 }
 
-function Stage({ c }: { c: YardContainer }) {
+function Stage({ c, open }: { c: YardContainer; open: boolean }) {
   const length = c.size === 40 ? BOX.len40 : BOX.len20;
   return (
+    // TIDAK di-key dan tidak dibongkar saat inspeksi ditutup: kanvas yang
+    // dibuat ulang tiap klik berarti konteks WebGL baru dan semua shader
+    // kontainer realistis dikompilasi ulang — ±1,5 dtk macet per klik di GPU
+    // terintegrasi. Saat tersembunyi rendernya dihentikan (frameloop never).
     <Canvas
-      key={c.size}
+      frameloop={open ? 'always' : 'never'}
       dpr={[1, 1.5]}
-      gl={{ alpha: true, antialias: true, powerPreference: 'low-power' }}
+      // powerPreference sama dengan kanvas lapangan: meminta 'low-power' di laptop
+      // dua-GPU memaksa ANGLE membuka perangkat GPU kedua — getContext terukur
+      // beberapa detik di Intel Iris.
+      gl={{ alpha: true, antialias: true, powerPreference: 'high-performance' }}
       camera={{ fov: FOV, near: 0.1, far: 200 }}
       onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}
     >
@@ -295,45 +306,51 @@ function GroupTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function InspectView({ c }: { c: YardContainer }) {
+export function InspectView({ c, open = true }: { c: YardContainer; open?: boolean }) {
   const select = useYard((s) => s.select);
   const line = LINES.find((l) => l.code === c.line);
   const accent = colorForLine(c.line);
 
   useEffect(() => {
+    if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') select(null);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [select]);
+  }, [select, open]);
 
   // Jeda bertingkat: tiap elemen menyusul 35 ms setelah sebelumnya.
   let i = 0;
   const d = () => 0.1 + 0.035 * i++;
 
   return (
-    // key: memilih kontainer lain mengulang seluruh animasi masuknya.
+    // Tetap terpasang setelah pertama dibuka (lihat Hud): saat tertutup hanya
+    // disembunyikan, supaya kanvas 3D dan shader-nya dipakai ulang.
     <div
-      key={c.no}
-      className="anim-fade pointer-events-auto absolute inset-0 z-40 flex items-center justify-center p-6"
-      style={{ background: 'rgb(6 10 18 / 0.55)', backdropFilter: 'blur(5px)' }}
+      aria-hidden={!open}
+      inert={!open}
+      className={`pointer-events-auto absolute inset-0 z-40 flex items-center justify-center p-6 transition-opacity duration-200 ${
+        open ? 'opacity-100' : 'invisible pointer-events-none opacity-0'
+      }`}
+      style={{ background: 'rgb(6 10 18 / 0.55)', backdropFilter: open ? 'blur(5px)' : undefined }}
       // Klik pada scrim — bukan pada dialognya — menutup inspeksi.
       onClick={(e) => {
         if (e.target === e.currentTarget) select(null);
       }}
     >
     <div
-      className="hud-panel anim-pop relative flex overflow-hidden rounded-2xl"
+      className={`hud-panel relative flex overflow-hidden rounded-2xl transition-transform duration-300 ${open ? 'scale-100' : 'scale-95'}`}
       style={{ width: 'min(1120px, 92vw)', height: 'min(680px, 84vh)' }}
       role="dialog"
-      aria-label={`Kontainer ${c.no}`}
+      aria-label={`Container ${c.no}`}
     >
       {/* ---- kiri: informasi ---- */}
-      <section className="anim-in-left relative flex h-full w-1/2 flex-col overflow-y-auto px-8 py-7">
+      {/* key: memilih kontainer lain mengulang animasi masuk informasinya. */}
+      <section key={`${c.no}|${open}`} className="anim-in-left relative flex h-full w-1/2 flex-col overflow-y-auto px-8 py-7">
         <div className="absolute inset-y-7 left-0 w-1 rounded-r" style={{ backgroundColor: accent }} />
 
-        <div className="text-[11px] uppercase tracking-[0.2em] text-slate-400">Kontainer</div>
+        <div className="text-[11px] uppercase tracking-[0.2em] text-slate-400">Container</div>
         <div className="mt-1 text-[30px] font-bold leading-none tracking-wide text-slate-50">{c.no}</div>
         <div className="mt-1.5 text-[13px] text-slate-300">{line?.name ?? c.line}</div>
         <div className="mt-3 flex flex-wrap gap-1.5">
@@ -347,9 +364,9 @@ export function InspectView({ c }: { c: YardContainer }) {
           )}
         </div>
 
-        <GroupTitle>Posisi di lapangan</GroupTitle>
+        <GroupTitle>Yard position</GroupTitle>
         <div className="grid grid-cols-4 gap-2">
-          <Cell label="Blok" value={c.block} delay={d()} />
+          <Cell label="Block" value={c.block} delay={d()} />
           <Cell label="Bay" value={String(c.bay + 1)} delay={d()} />
           <Cell label="Row" value={String(c.row + 1)} delay={d()} />
           <Cell label="Tier" value={String(c.tier)} delay={d()} />
@@ -357,30 +374,30 @@ export function InspectView({ c }: { c: YardContainer }) {
 
         <div className="grid grid-cols-1 gap-x-8">
           <div>
-            <GroupTitle>Kontainer</GroupTitle>
-            <Row label="Jenis" value={ctrTypeLabel(c.typeCode)} delay={d()} />
-            <Row label="Kode ISO" value={c.isoCode || '—'} delay={d()} />
+            <GroupTitle>Container</GroupTitle>
+            <Row label="Type" value={ctrTypeLabel(c.typeCode)} delay={d()} />
+            <Row label="ISO code" value={c.isoCode || '—'} delay={d()} />
             <Row label="Status" value={c.filled ? STATUS_LABEL.full : STATUS_LABEL.empty} delay={d()} />
-            <Row label="Kondisi" value={c.damaged ? STATUS_LABEL.damaged : 'Baik'} warn={c.damaged} delay={d()} />
+            <Row label="Condition" value={c.damaged ? STATUS_LABEL.damaged : 'Good'} warn={c.damaged} delay={d()} />
             {/* GROSS kosong di database depot dan TARE sering ikut kosong, jadi
                 0 berarti tidak diketahui — bukan nol kilogram. */}
-            <Row label="Berat" value={c.weightKg > 0 ? `${nf(c.weightKg)} kg` : '—'} delay={d()} />
+            <Row label="Weight" value={c.weightKg > 0 ? `${nf(c.weightKg)} kg` : '—'} delay={d()} />
           </div>
           <div>
-            <GroupTitle>Pergerakan</GroupTitle>
+            <GroupTitle>Movement</GroupTitle>
             <Row label="Operator" value={line?.name ?? c.line} delay={d()} />
             <Row label="Vessel" value={c.vessel} delay={d()} />
-            <Row label="Masuk lapangan" value={tanggal(c.inDate)} delay={d()} />
+            <Row label="Yard in" value={tanggal(c.inDate)} delay={d()} />
           </div>
         </div>
 
         <div className="mt-auto pt-6 text-[11px] text-slate-500">
-          Esc, ✕, atau klik di luar untuk kembali ke lapangan.
+          Esc, ✕, or click outside to return to the yard.
         </div>
       </section>
 
       {/* ---- kanan: kontainer fisik ---- */}
-      <section className="anim-in-right relative h-full w-1/2 border-l border-white/10">
+      <section className="relative h-full w-1/2 border-l border-white/10">
         <div
           className="absolute inset-0"
           style={{
@@ -388,27 +405,27 @@ export function InspectView({ c }: { c: YardContainer }) {
               'radial-gradient(55% 50% at 50% 48%, rgb(56 189 248 / 0.14), transparent 70%)',
           }}
         />
-        <Stage c={c} />
+        <Stage c={c} open={open} />
 
         <div className="pointer-events-none absolute left-5 top-5 flex items-center gap-2">
           <span className="h-3 w-3 rounded-[3px]" style={{ backgroundColor: accent }} />
-          <span className="text-[13px] font-semibold text-slate-100">Kontainer fisik</span>
+          <span className="text-[13px] font-semibold text-slate-100">Physical container</span>
           <span className="ml-2 text-[11px] uppercase tracking-[0.16em] text-slate-400">
             {c.size} ft · {ctrTypeLabel(c.typeCode).split(' ')[0]}
           </span>
         </div>
         <div className="pointer-events-none absolute bottom-5 left-5 text-[11px] text-slate-500">
-          Seret untuk memutar · berputar sendiri saat dilepas
+          Drag to rotate · spins on its own when released
         </div>
 
         <button
           type="button"
           onClick={() => select(null)}
           className="absolute right-4 top-4 rounded-lg border border-white/15 bg-white/[0.06] px-3 py-1.5 text-[13px] text-slate-200 hover:border-white/30 hover:bg-white/10 hover:text-white"
-          aria-label="Tutup"
-          title="Tutup (Esc)"
+          aria-label="Close"
+          title="Close (Esc)"
         >
-          ✕ Tutup
+          ✕ Close
         </button>
 
         <div className="absolute inset-x-0 bottom-0 h-1" style={{ backgroundColor: STATUS_COLOR[c.status] }} />

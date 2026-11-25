@@ -17,7 +17,7 @@ export const revalidate = 0;
 
 export async function GET(request: Request) {
   const no = new URL(request.url).searchParams.get('no')?.trim().toUpperCase();
-  if (!no) return NextResponse.json({ error: 'parameter no wajib' }, { status: 400 });
+  if (!no) return NextResponse.json({ error: 'parameter no is required' }, { status: 400 });
   try {
     const c = await readContainer(no);
     return NextResponse.json(c ? { found: true, container: c } : { found: false });

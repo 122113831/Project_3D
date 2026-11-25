@@ -18,7 +18,7 @@ export async function GET() {
     // Status 503, bukan 500: ini kegagalan dependensi eksternal, dan pesannya
     // ikut dikirim supaya HUD bisa menampilkan sebabnya.
     return NextResponse.json(
-      { error: `Gagal membaca database depot: ${message}` },
+      { error: `Failed to read the depot database: ${message}` },
       { status: 503 },
     );
   }

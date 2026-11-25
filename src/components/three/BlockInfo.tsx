@@ -64,7 +64,7 @@ export function BlockInfo() {
                 baris saling menumpuk. */}
             <div
               className="pointer-events-none flex select-none items-center gap-1.5 whitespace-nowrap rounded-full border border-white/15 bg-slate-950/80 px-2 py-0.5 text-[11px] text-slate-100 shadow-lg"
-              title={`${nf(o.boxes)} box · ${nf(o.used)}/${nf(o.capacity)} TEU`}
+              title={`${nf(o.boxes)} ${o.boxes === 1 ? "box" : "boxes"} · ${nf(o.used)}/${nf(o.capacity)} TEU`}
             >
               <span className="font-bold">{o.id}</span>
               <span className="h-1.5 w-10 overflow-hidden rounded bg-white/15">
@@ -81,12 +81,12 @@ export function BlockInfo() {
                 <span className="font-semibold text-white tabular-nums">
                   {nf(o.free)}
                 </span>{" "}
-                box
+                {o.free === 1 ? "box" : "boxes"}
               </span>
               {o.blocked > 0 && (
                 <span
                   className="text-red-300 tabular-nums"
-                  title="Slot terkunci, tidak dihitung kapasitas"
+                  title="Locked slots, not counted in capacity"
                 >
                   🔒{nf(o.blocked)}
                 </span>

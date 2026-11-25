@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { useYard } from '@/store/useYard';
-import { nf, Panel, Stat } from './ui';
+import { nf } from './ui';
 
 /**
  * Angka renderer: FPS, draw call, segitiga, dan GPU yang sedang dipakai.
@@ -12,6 +12,7 @@ import { nf, Panel, Stat } from './ui';
  * didorong ke tepi kanan. Sebelumnya keduanya satu panel dengan `ml-auto` di
  * tengah, dan lubang di antaranya melar mengikuti lebar jendela.
  */
+/** Chip kinerja di kartu kanan atas (tanpa kartunya sendiri). */
 export function PerfBar() {
   const perf = useYard((s) => s.perf);
 
@@ -28,39 +29,31 @@ export function PerfBar() {
     return { name: name.slice(0, 22) || raw.slice(0, 22), software, raw };
   }, [perf.renderer]);
 
+  // Ringkas seperti chip di mockup; rincian lengkap di tooltip.
+  const tri = perf.triangles > 999_999 ? `${(perf.triangles / 1e6).toFixed(1)} M` : nf(perf.triangles);
+  const detail = [
+    perf.frameMs ? `${perf.frameMs.toFixed(1)} ms/frame` : 'idle = nothing changing',
+    perf.dpr ? `dpr ${perf.dpr.toFixed(2)}` : '',
+    `${nf(perf.calls)} draw calls`,
+    `${tri} triangles`,
+    gpu ? `GPU: ${gpu.raw}` : '',
+    gpu?.software ? 'software rendering' : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
   return (
-    <Panel className="pointer-events-auto flex items-center gap-5 px-4 py-2.5">
-      <Stat
-        label="FPS"
-        value={perf.fps ? String(perf.fps) : 'idle'}
-        hint={
-          perf.frameMs
-            ? `${perf.frameMs.toFixed(1)} ms/frame${perf.dpr ? ` · dpr ${perf.dpr.toFixed(2)}` : ''}`
-            : 'idle = tidak ada yang berubah'
-        }
-      />
-      <Stat label="Draw call" value={nf(perf.calls)} />
-      {/* Kolom yang paling jarang dibaca menghilang lebih dulu di jendela
-          sempit. Tanpa ini panel renderer turun ke baris kedua dan mendorong
-          seluruh kolom kiri ke bawah — opsi tampilan paling bawah jadi
-          terpotong hanya karena jendelanya kurang lebar. */}
-      <div className="hidden xl:block">
-        <Stat
-          label="Triangle"
-          value={perf.triangles > 999_999 ? `${(perf.triangles / 1e6).toFixed(1)} jt` : nf(perf.triangles)}
-        />
-      </div>
-      {gpu && (
-        <div className="hidden min-w-[74px] 2xl:block" title={gpu.raw}>
-          <div className="text-[10px] uppercase tracking-[0.12em] text-slate-400">GPU</div>
-          <div
-            className={`text-[13px] font-semibold ${gpu.software ? 'text-amber-300' : 'text-slate-50'}`}
-          >
-            {gpu.name}
-          </div>
-          {gpu.software && <div className="text-[10px] text-amber-400/80">render perangkat lunak</div>}
-        </div>
-      )}
-    </Panel>
+    <>
+      <span
+        title={detail}
+        className={`flex h-8 items-center gap-2 rounded-[9px] bg-white/[0.06] px-2.5 font-mono text-[11.5px] ${
+          gpu?.software ? 'text-amber-300' : 'text-slate-300'
+        }`}
+      >
+        <i className={`h-[7px] w-[7px] rounded-full ${gpu?.software ? 'bg-amber-400' : 'bg-emerald-400'}`} />
+        {perf.fps ? `${perf.fps} fps` : 'idle'} · {nf(perf.calls)} draw
+        <span className="hidden text-slate-500 2xl:inline">· {tri}</span>
+      </span>
+    </>
   );
 }

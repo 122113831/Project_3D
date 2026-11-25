@@ -184,10 +184,19 @@ type Geo = {
   dark: THREE.BufferGeometry;
   atlas: Atlas;
 };
-const geoCache = new Map<Quality, Geo>();
+const geoCache = new Map<string, Geo>();
 
-function buildGeometry(q: Quality): Geo {
-  const hit = geoCache.get(q);
+/**
+ * Bentuk atap tank. 'basic' = walkway kisi gelap + satu manlid (bawaan).
+ * 'cimc' = atap tank CIMC (Eagletainer, foto asli): dua jalur pijakan
+ * aluminium di kiri-kanan, lajur tengah berisi grating di kedua ujung, dua
+ * kotak manhole cekung bertutup bundar berbaut, dan palang rangka melintang.
+ */
+type TankTop = 'basic' | 'cimc';
+const TANK_TOP: Record<string, TankTop> = { EAGLE_TANK: 'cimc' };
+
+function buildGeometry(q: Quality, topStyle: TankTop = 'basic'): Geo {
+  const hit = geoCache.get(`${q}|${topStyle}`);
   if (hit) return hit;
   const hi = q === 'inspect';
   const A = atlasFor();
@@ -247,18 +256,85 @@ function buildGeometry(q: Quality): Geo {
         dark.push(rbox(0.178, 0.118, 0.162, ex * (hx - 0.089), ey * (hy - 0.059), ez * (hz - 0.081), 0.012));
       }
 
-  // ---- atas: walkway kisi gelap di atas penyangga, manlid & katup.
+  // ---- atas
   const top = YC + R;
-  dark.push(box(L - 1.6, 0.025, 0.56, 0, top + 0.1, 0));
-  for (const x of [-1.8, -0.6, 0.6, 1.8]) metal.push(box(0.05, 0.1, 0.5, x, top + 0.04, 0));
-  metal.push(rod(0.3, 0.14, 0, top + 0.06, 0, 'y', hi ? 20 : 12));
-  metal.push(rod(0.26, 0.03, 0, top + 0.15, 0, 'y', hi ? 20 : 12));
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2;
-    dark.push(rod(0.02, 0.07, Math.cos(a) * 0.28, top + 0.16, Math.sin(a) * 0.28, 'y', 6));
+  if (topStyle === 'basic') {
+    // Walkway kisi gelap di atas penyangga, manlid & katup.
+    dark.push(box(L - 1.6, 0.025, 0.56, 0, top + 0.1, 0));
+    for (const x of [-1.8, -0.6, 0.6, 1.8]) metal.push(box(0.05, 0.1, 0.5, x, top + 0.04, 0));
+    metal.push(rod(0.3, 0.14, 0, top + 0.06, 0, 'y', hi ? 20 : 12));
+    metal.push(rod(0.26, 0.03, 0, top + 0.15, 0, 'y', hi ? 20 : 12));
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      dark.push(rod(0.02, 0.07, Math.cos(a) * 0.28, top + 0.16, Math.sin(a) * 0.28, 'y', 6));
+    }
+    metal.push(rod(0.07, 0.22, 0.9, top + 0.1, 0.12, 'y', 10));
+    dark.push(rod(0.09, 0.03, 0.9, top + 0.22, 0.12, 'y', 10));
+  } else {
+    // Tinggi pijakan: rata dengan puncak rangka.
+    const deck = hy - 0.035;
+    const x0 = -hx + 0.22;
+    const x1 = hx - 0.22;
+    // Jalur pijakan kiri & kanan: tiga panel aluminium per sisi, dengan
+    // garis-garis tonjolan anti-selip (pelat "tread") dan celah antarpanel.
+    const zIn = 0.4;
+    const zOut = hz - 0.16;
+    const wz = zOut - zIn;
+    const panels = 3;
+    const pl = (x1 - x0) / panels;
+    for (const ez of [1, -1]) {
+      const zc = ez * (zIn + wz / 2);
+      for (let i = 0; i < panels; i++) {
+        const cx = x0 + pl * (i + 0.5);
+        metal.push(box(pl - 0.03, 0.025, wz, cx, deck, zc));
+        if (hi) {
+          for (let k = 1; k < 14; k++) {
+            dark.push(box(0.012, 0.004, wz - 0.06, cx - pl / 2 + (k * pl) / 14, deck + 0.014, zc));
+          }
+        }
+      }
+      // Penyangga jalur di atas tabung, dan palang dari rel samping.
+      for (const x of [-1.9, -0.65, 0.65, 1.9]) {
+        metal.push(box(0.05, deck - top + 0.02, 0.05, x, (deck + top) / 2 - 0.02, ez * (zIn + 0.05)));
+        frame.push(rbox(0.07, 0.06, wz + 0.2, x, hy - 0.07, ez * (zIn + wz / 2 + 0.08), 0.01));
+      }
+    }
+    // Lajur tengah (|z| < zIn): grating ujung, kotak manhole, grating tengah.
+    const grating = (xa: number, xb: number) => {
+      const len = xb - xa;
+      dark.push(box(len, 0.02, 2 * zIn - 0.04, (xa + xb) / 2, deck - 0.005, 0));
+      const n = Math.round(len / (hi ? 0.045 : 0.09));
+      for (let i = 0; i <= n; i++) metal.push(box(0.012, 0.03, 2 * zIn - 0.04, xa + (len * i) / n, deck, 0));
+      for (const ez of [1, -1]) metal.push(box(len, 0.035, 0.02, (xa + xb) / 2, deck, ez * (zIn - 0.02)));
+    };
+    const manhole = (xa: number, xb: number) => {
+      const cx = (xa + xb) / 2;
+      const len = xb - xa;
+      const wall = 0.16;
+      const yb = deck - wall / 2;
+      // Dinding kotak cekung dan dasar di atas tabung.
+      for (const ez of [1, -1]) metal.push(box(len, wall, 0.02, cx, yb, ez * (zIn - 0.03)));
+      for (const ex of [1, -1]) metal.push(box(0.02, wall, 2 * zIn - 0.06, cx + (ex * len) / 2, yb, 0));
+      metal.push(box(len, 0.015, 2 * zIn - 0.06, cx, deck - wall + 0.01, 0));
+      // Tutup bundar berbaut kupu-kupu dan katup napas di pojok.
+      const ly = deck - wall + 0.05;
+      metal.push(rod(0.27, 0.05, cx, ly, 0, 'y', hi ? 24 : 12));
+      metal.push(rod(0.22, 0.012, cx, ly + 0.03, 0, 'y', hi ? 24 : 12));
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        dark.push(box(0.07, 0.02, 0.025, cx + Math.cos(a) * 0.29, ly + 0.03, Math.sin(a) * 0.29));
+      }
+      metal.push(rod(0.055, 0.12, cx + len / 2 - 0.12, ly + 0.05, zIn - 0.13, 'y', 10));
+      dark.push(rod(0.065, 0.025, cx + len / 2 - 0.12, ly + 0.12, zIn - 0.13, 'y', 10));
+    };
+    grating(1.95, x1);
+    manhole(1.15, 1.9);
+    grating(0.25, 0.85);
+    manhole(-0.6, 0.2);
+    grating(x0, -1.95);
+    // Palang rangka biru melintang di atas lajur tengah.
+    for (const x of [1.0, -0.78]) frame.push(rbox(0.09, 0.07, W - 0.22, x, hy - 0.06, 0, 0.012));
   }
-  metal.push(rod(0.07, 0.22, 0.9, top + 0.1, 0.12, 'y', 10));
-  dark.push(rod(0.09, 0.03, 0.9, top + 0.22, 0.12, 'y', 10));
 
   // ---- ujung +X: tangga di sisi -Z, kotak dokumen di sisi +Z, katup bawah.
   const lx = hx - 0.1;
@@ -287,14 +363,20 @@ function buildGeometry(q: Quality): Geo {
     dark: merge(dark.map(plainDecal)),
     atlas: A,
   };
-  geoCache.set(q, out);
+  geoCache.set(`${q}|${topStyle}`, out);
   return out;
 }
 
 // --- marka -------------------------------------------------------------------
 
 /** Tata letak bermerek per livery tank; tanpa entri = hanya nomor & stiker. */
-const TANK_BRAND: Record<string, 'seaco'> = { SEACO_TANK: 'seaco' };
+const TANK_BRAND: Record<string, 'seaco' | 'eagle'> = { SEACO_TANK: 'seaco', EAGLE_TANK: 'eagle' };
+
+/** Rangka bermerek; tanpa entri = biru tua bawaan (FRAME_COLOR). */
+const TANK_FRAME: Record<string, string> = {
+  // Eagletainer: rangka biru terang (foto asli).
+  EAGLE_TANK: '#1E56D2',
+};
 
 /** Baris teks kecil abu (panduan operasi) — terbaca sebagai blok teks. */
 function textBlock(g: CanvasRenderingContext2D, x: number, y: number, w: number, lines: number, h: number) {
@@ -376,6 +458,32 @@ function drawMarkings(A: Atlas, liv: Livery): { canvas: HTMLCanvasElement; zones
     g.font = `600 ${m(0.085)}px 'Segoe UI', Arial, sans-serif`;
     g.fillText('www.seacoglobal.com', m(x0 + 0.48), m(0.25) + px * 0.75 + m(0.17));
     g.textBaseline = 'top';
+  } else if (brand === 'eagle') {
+    // "EAGLETAINER" biru tebal berjarak lebar, besar di tengah pita tabung.
+    g.save();
+    g.fillStyle = liv.textColor;
+    g.textAlign = 'center';
+    g.textBaseline = 'alphabetic';
+    const word = 'EAGLETAINER';
+    let px = m(0.64);
+    const font = (p: number) => `800 ${p}px 'Segoe UI', 'Helvetica Neue', Arial, sans-serif`;
+    g.font = font(px);
+    const track = () => px * 0.06;
+    const widthOf = () => [...word].reduce((s, ch) => s + g.measureText(ch).width + track(), -track());
+    const avail = m(L - 2 * x0 - 1.2) * 0.72;
+    if (widthOf() > avail) {
+      px *= avail / widthOf();
+      g.font = font(px);
+    }
+    const cap = g.measureText('E').actualBoundingBoxAscent || px * 0.72;
+    let x = m(L / 2 - 0.15) - widthOf() / 2;
+    const base = m(BAND_H * 0.5) + cap / 2;
+    g.textAlign = 'left';
+    for (const ch of word) {
+      g.fillText(ch, x, base);
+      x += g.measureText(ch).width + track();
+    }
+    g.restore();
   } else if (TANK_TEXT[liv.code]) {
     const t = TANK_TEXT[liv.code];
     g.fillStyle = liv.textColor;
@@ -500,7 +608,7 @@ export function realisticTankModel(variant: Variant, liv: Livery, quality: Quali
   const cacheKey = `${variant}|${quality}|${liveryKey(liv)}`;
   const hit = modelCache.get(cacheKey);
   if (hit) return hit;
-  const geo = buildGeometry(quality);
+  const geo = buildGeometry(quality, TANK_TOP[liv.code] ?? 'basic');
   // Cladding tank bersih, tanpa belang & bintik karat peta cat GP — jadi
   // tanpa map, dan tanpa koreksi rata-rata peta itu.
   const { normal } = paintMaps();
@@ -517,7 +625,11 @@ export function realisticTankModel(variant: Variant, liv: Livery, quality: Quali
     specular: new THREE.Color('#4a5058'),
   });
   withMarkings(paint, marksTexture(geo.atlas, liv), liv.textColor);
-  const frame = new THREE.MeshPhongMaterial({ color: new THREE.Color(FRAME_COLOR), shininess: 30, specular: new THREE.Color('#2a3040') });
+  const frame = new THREE.MeshPhongMaterial({
+    color: new THREE.Color(TANK_FRAME[liv.code] ?? FRAME_COLOR),
+    shininess: 30,
+    specular: new THREE.Color('#2a3040'),
+  });
   const metal = new THREE.MeshPhongMaterial({ color: new THREE.Color(METAL_COLOR), shininess: 70, specular: new THREE.Color('#9aa0a6') });
   const dark = new THREE.MeshPhongMaterial({ color: new THREE.Color('#25282b'), shininess: 10, specular: new THREE.Color('#15181b') });
 

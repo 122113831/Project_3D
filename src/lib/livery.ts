@@ -57,8 +57,32 @@ export const BUILTIN_LOGO: Record<string, 'maersk-star'> = { MAERSK_GP: 'maersk-
  */
 export const SIDE_LAYOUT: Record<
   string,
-  'spil-stripe' | 'tanto-stripe' | 'ctp-stripe' | 'meratus-top' | 'kline-center' | 'seaco-top' | 'seaco-reefer' | 'cmacgm-center' | 'rcl-text'
+  'spil-stripe' | 'tanto-stripe' | 'ctp-stripe' | 'meratus-top' | 'kline-center' | 'seaco-top' | 'seaco-reefer' | 'cmacgm-center' | 'rcl-text' | 'wanhai-text' | 'triton-vertical' | 'sitc-center' | 'samudera-flag' | 'temas-line' | 'tex-vertical' | 'kmtc-line'
 > = {
+  // KMTC: kotak putih berbendera biru huruf K + www.ekmtc.com di kiri atas,
+  // "KMTC LINE" putih tebal lebar di tengah badan biru (foto asli). Berkas
+  // logonya berhuruf hitam — tidak terbaca di badan biru.
+  KMTC_GP: 'kmtc-line',
+  // TEXTAINER: "t e x" huruf kecil serif putih bersusun tegak dekat ujung kiri
+  // (GP dan open top); reefer badan putih dengan huruf merah.
+  TEX_GP: 'tex-vertical',
+  TEX_REEFER: 'tex-vertical',
+  // TEMAS: bendera berkibar merah-putih-biru berlambang + "TEMAS LINE" putih
+  // miring di badan merah marun, alamat web kecil di kiri atas (foto asli).
+  TEMAS_GP: 'temas-line',
+  // SITC: "SITC" putih tebal miring, bergaris tepi biru tua, besar di tengah.
+  SITC_GP: 'sitc-center',
+  // SAMUDERA: bendera bergaris merah-putih berhuruf S hitam + "SAMUDERA" serif
+  // hitam di badan kuning (foto asli). Berkas logonya berlatar putih: penghapus
+  // latar otomatis ikut menghapus garis putih benderanya.
+  SAMUDERA_GP: 'samudera-flag',
+  SAMUDERA_REEFER: 'samudera-flag',
+  // TRITON: huruf T-R-I-T-O-N putih slab serif bersusun tegak dekat ujung kiri (foto asli).
+  TRITON_GP: 'triton-vertical',
+  // WAN HAI: huruf miring berongga bergaris putih, kedua "A" merah (foto asli).
+  // Berkas logonya berhuruf navy — tenggelam di badan navy.
+  WANHAI_GP: 'wanhai-text',
+  WANHAI_REEFER: 'wanhai-text',
   // RCL: "R C L" putih serif besar berjarak lebar (foto kontainer asli).
   RCL_GP: 'rcl-text',
   // CMA CGM: "CMA CGM" putih tebal di tengah + dua sapuan putih (foto asli).
@@ -128,8 +152,8 @@ export const FALLBACK_LIVERIES: LiverySet = {
     ...(seed.liveries as SeedLivery[]).map((x) =>
       L(x.code, x.brand, x.model ?? 'GP_CORRUGATED', x.body, x.text, null, 'LEFT', x.scale, x.logo),
     ),
-    L('GENERIC_GP', 'Polos (tanpa merek)', 'GP_CORRUGATED', '#8D949C', '#1C1E20', null, 'NONE'),
-    L('GENERIC_REEFER', 'Reefer polos', 'REEFER_PANEL', '#E3E6E8', '#1C1E20', null, 'NONE'),
+    L('GENERIC_GP', 'Plain (unbranded)', 'GP_CORRUGATED', '#8D949C', '#1C1E20', null, 'NONE'),
+    L('GENERIC_REEFER', 'Plain reefer', 'REEFER_PANEL', '#E3E6E8', '#1C1E20', null, 'NONE'),
   ],
   rules: [
     ...(seed.liveries as SeedLivery[]).flatMap((x) =>

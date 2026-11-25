@@ -21,6 +21,11 @@ export type RsJob = RsJobPlan & {
   /** Sudut blok yang dikerjakan — arah panjang kontainer di spreader. */
   rot: number;
   startedAt: number;
+  /**
+   * Stack/unstack truk gate: pekerjaan di useTraffic yang dikerjakan RS ini
+   * (menurut KODE_ALAT), bukan relokasi contoh.
+   */
+  truckJob?: { id: string; flow: 'R' | 'D' };
 };
 
 type RsWorksState = {
@@ -57,12 +62,12 @@ export const useRsWorks = create<RsWorksState>((set) => ({
 export function runRsDemo(): string {
   const layout = useEditor.getState().layout;
   const data = useYard.getState().data;
-  if (!data) return 'Data lapangan belum dimuat.';
+  if (!data) return 'Yard data not loaded yet.';
   const { busy, jobs, start } = useRsWorks.getState();
   const units = rsUnits(layout?.equipment ?? []);
-  if (!units.length) return 'Belum ada reach stacker di tata letak — taruh area parkir RS (tab Parkir) atau RS lepas (tab Alat).';
+  if (!units.length) return 'No reach stacker in the layout yet — place an RS parking area (Parking tab) or a standalone RS (Equipment tab).';
   const free = units.filter((u) => !busy.includes(u.key));
-  if (!free.length) return `Semua ${units.length} RS sedang bekerja.`;
+  if (!free.length) return `All ${units.length} RS units are busy.`;
   const blocks = applyLayout(data, layout).blocks;
   // Satu blok satu RS, supaya dua RS tidak berebut tumpukan yang sama.
   const taken = new Set(Object.values(jobs).map((j) => j.blockId));
@@ -91,8 +96,8 @@ export function runRsDemo(): string {
         startedAt: Date.now(),
       });
       const slot = (c: { bay: number; row: number; tier: number }) => `${c.bay * 2 + 1}/${c.row + 1}/${c.tier}`;
-      return `${unit.code} merelokasi ${move.c.no.trim()}: ${b.id}-${slot(move.c)} → ${b.id}-${slot(move.to)}`;
+      return `${unit.code} relocating ${move.c.no.trim()}: ${b.id}-${slot(move.c)} → ${b.id}-${slot(move.to)}`;
     }
   }
-  return 'Tidak ada relokasi yang bisa dijangkau RS (baris tepi, tier ≤ 4) di blok mana pun.';
+  return 'No relocation within RS reach (edge row, tier ≤ 4) in any block.';
 }

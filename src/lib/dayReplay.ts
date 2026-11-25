@@ -21,6 +21,8 @@ export type DayTrip = {
   gateIn: string | null;
   handled: string | null;
   gateOut: string | null;
+  /** Kode alat penanganan (PRODUCTION_OPERATOR_NEW), opsional. */
+  equipment?: string | null;
 };
 
 export type Scheduled = { at: number; real: number; event: LiveEvent };
@@ -28,7 +30,7 @@ export type Scheduled = { at: number; real: number; event: LiveEvent };
 export function scheduleDay(trips: readonly DayTrip[], scale: number, maxIdleMin = 20): Scheduled[] {
   const raw: { real: number; event: LiveEvent }[] = [];
   for (const t of trips) {
-    const base = { jobNo: t.jobNo, ctrNo: t.ctrNo, truckNo: t.truckNo, flow: t.flow };
+    const base = { jobNo: t.jobNo, ctrNo: t.ctrNo, truckNo: t.truckNo, flow: t.flow, equipment: t.equipment ?? null };
     const push = (iso: string | null, event: LiveEvent) => {
       const real = iso ? Date.parse(iso) : NaN;
       if (Number.isFinite(real)) raw.push({ real, event });

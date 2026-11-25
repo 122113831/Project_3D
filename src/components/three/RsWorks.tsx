@@ -5,7 +5,9 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { BOX } from '@/lib/constants';
 import { createReachStacker, type ReachStackerObject } from '@/lib/reachStacker';
-import { headingOf, type Pose, type RsStep } from '@/lib/rsPlan';
+import { headingOf, pickMobileUnit, planRsTruckJob, rsUnits, wantsMobile, type Pose, type RsStep } from '@/lib/rsPlan';
+import { useEditor } from '@/store/useEditor';
+import { useYardView } from '@/store/useYardView';
 import { useRsWorks, type RsJob } from '@/store/useRsWorks';
 import { useTraffic } from '@/store/useTraffic';
 import { useYard } from '@/store/useYard';
@@ -98,14 +100,23 @@ function Worker({ job }: { job: RsJob }) {
     // Lewati langkah yang sudah habis, sambil menjalankan kejadiannya.
     while (r.i < r.steps.length && r.t >= r.steps[r.i].dur) {
       const s = r.steps[r.i];
+      const tj = r.job.truckJob;
       if (s.kind === 'boom' && s.event === 'grab' && !r.carrying) {
         r.carrying = true;
         r.grabHeading = r.heading;
-        useYard.getState().removeContainer(r.job.container.no);
+        // Dari dek truk (R): kontainer di truk hilang lewat markLifted; dari
+        // tumpukan (D dan relokasi): dikeluarkan dari data lapangan.
+        if (tj) useTraffic.getState().markLifted(tj.id);
+        if (!tj || tj.flow === 'D') useYard.getState().removeContainer(r.job.container.no);
       }
       if (s.kind === 'boom' && s.event === 'release' && r.carrying) {
         r.carrying = false;
-        useYard.getState().addContainer(r.job.to);
+        if (!tj || tj.flow === 'R') useYard.getState().addContainer(r.job.to);
+        if (tj) {
+          // Kontainer sudah di tujuannya: truk boleh berangkat selagi RS pulang.
+          useTraffic.getState().markPlaced(tj.id);
+          useTraffic.getState().finishJob(tj.id);
+        }
       }
       r.t -= s.dur;
       r.i++;
@@ -160,7 +171,46 @@ function Worker({ job }: { job: RsJob }) {
   );
 }
 
+/**
+ * Truk gate yang sudah menunggu dan kontainernya ditangani alat bergerak
+ * menurut data (KODE_ALAT RS…/SL…/FL…): RS yang cocok diberangkatkan untuk
+ * mengambil/menaruh kontainer di truk. RTG melewati pekerjaan ini (RtgWorks).
+ */
+function useTruckDispatch() {
+  const rtgJobs = useTraffic((s) => s.rtgJobs);
+  const busy = useRsWorks((s) => s.busy);
+  const data = useYardView();
+  const layout = useEditor((s) => s.layout);
+  useEffect(() => {
+    if (!data) return;
+    const units = rsUnits(layout?.equipment ?? []);
+    if (!units.length) return;
+    const taken = [...busy];
+    for (const job of Object.values(rtgJobs)) {
+      if (job.stage !== 'queued' || job.flow === 'S' || !wantsMobile(job.equipment)) continue;
+      const block = data.blocks.find((b) => b.id === job.blockId);
+      if (!block) continue;
+      const unit = pickMobileUnit(job.equipment, units, taken);
+      if (!unit || unit === 'wait') continue;
+      const plan = planRsTruckJob(unit, block, job.flow, job.container, job.truck, data.blocks, layout?.roads ?? []);
+      useTraffic.getState().claimJob(job.id, null);
+      useRsWorks.getState().start({
+        ...plan,
+        id: `RS|${unit.key}|${job.id}`,
+        unitKey: unit.key,
+        code: unit.code,
+        home: { x: unit.x, z: unit.z, ry: unit.ry },
+        rot: block.rot ?? 0,
+        startedAt: Date.now(),
+        truckJob: { id: job.id, flow: job.flow },
+      });
+      taken.push(unit.key);
+    }
+  }, [rtgJobs, busy, data, layout]);
+}
+
 export function RsWorks() {
+  useTruckDispatch();
   const jobs = useRsWorks((s) => s.jobs);
   return (
     <>

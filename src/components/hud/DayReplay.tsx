@@ -6,9 +6,9 @@ import { useTraffic } from '@/store/useTraffic';
 import { Chip, SubLabel } from './ui';
 
 const SCALES = [
-  { v: 60, label: '60×', title: '1 jam rekaman = 1 menit' },
-  { v: 300, label: '300×', title: '1 jam rekaman = 12 detik' },
-  { v: 900, label: '900×', title: '1 jam rekaman = 4 detik' },
+  { v: 60, label: '60×', title: '1 recorded hour = 1 minute' },
+  { v: 300, label: '300×', title: '1 recorded hour = 12 seconds' },
+  { v: 900, label: '900×', title: '1 recorded hour = 4 seconds' },
 ];
 
 /** Jam rekaman, berjalan `scale` kali lebih cepat dari kejadian terakhir. */
@@ -22,11 +22,11 @@ export function DayClock() {
   }, [clock]);
   if (!clock) return null;
   const now = new Date(clock.real + (performance.now() - clock.startedAt) * clock.scale);
-  const hh = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const hh = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   return (
     <div className="mt-1 flex items-center justify-between rounded bg-sky-400/10 px-2 py-1 text-[11px] text-sky-100">
       <span>
-        Rekaman {clock.day.split('-').reverse().join('-')} · <b className="tabular-nums">{hh}</b>
+        Recording {clock.day.split('-').reverse().join('-')} · <b className="tabular-nums">{hh}</b>
       </span>
       <span className="tabular-nums text-sky-300/80">
         {clock.done}/{clock.total}
@@ -35,8 +35,8 @@ export function DayClock() {
   );
 }
 
-const MONTHS = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-const WEEKDAYS = ['Sn', 'Sl', 'Rb', 'Km', 'Jm', 'Sb', 'Mg'];
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const WEEKDAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
 const pad = (n: number) => String(n).padStart(2, '0');
 const ymKey = (y: number, m: number) => `${y}-${pad(m + 1)}`;
 
@@ -58,7 +58,7 @@ function DayCalendar({
   const months = [...new Set(days.map((d) => d.day.slice(0, 7)))].sort();
   const [view, setView] = useState('');
   const shown = view || (value ? value.slice(0, 7) : months[months.length - 1]) || '';
-  if (!shown) return <div className="py-3 text-center text-[11px] text-slate-400">memuat…</div>;
+  if (!shown) return <div className="py-3 text-center text-[11px] text-slate-400">loading…</div>;
 
   const [y, m] = shown.split('-').map(Number);
   const lead = (new Date(y, m - 1, 1).getDay() + 6) % 7; // Senin = kolom pertama
@@ -73,11 +73,11 @@ function DayCalendar({
   const todayKey = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
 
   return (
-    <div className="rounded border border-white/10 bg-black/25 p-1.5">
+    <div className="rounded-[11px] bg-white/[0.04] p-2">
       <div className="mb-1 flex items-center justify-between text-[11px] text-slate-100">
         <button
           type="button"
-          aria-label="Bulan sebelumnya"
+          aria-label="Previous month"
           disabled={idx === 0 || (idx < 0 && shown < months[0])}
           onClick={() => go(-1)}
           className="rounded px-1.5 hover:bg-white/10 disabled:opacity-30"
@@ -89,7 +89,7 @@ function DayCalendar({
         </b>
         <button
           type="button"
-          aria-label="Bulan berikutnya"
+          aria-label="Next month"
           disabled={idx === months.length - 1 || (idx < 0 && shown > months[months.length - 1])}
           onClick={() => go(1)}
           className="rounded px-1.5 hover:bg-white/10 disabled:opacity-30"
@@ -111,25 +111,25 @@ function DayCalendar({
           const n = trips.get(key);
           const sel = key === value;
           // Makin ramai, makin pekat latarnya.
-          const heat = n ? 0.12 + 0.4 * (n / max) : 0;
+          const heat = n ? 0.18 + 0.6 * (n / max) : 0;
           return (
             <button
               key={key}
               type="button"
               disabled={!n}
               onClick={() => onChange(key)}
-              title={n ? `${key.split('-').reverse().join('-')} · ${n} truk` : 'Tidak ada aktivitas'}
-              style={n && !sel ? { backgroundColor: `rgba(56,189,248,${heat})` } : undefined}
-              className={`flex h-8 flex-col items-center justify-center rounded leading-none ${
+              title={n ? `${key.split('-').reverse().join('-')} · ${n} trucks` : 'No activity'}
+              style={n ? { backgroundColor: `rgba(245,165,36,${heat})` } : undefined}
+              className={`flex h-[30px] flex-col items-center justify-center rounded-[7px] leading-none ${
                 sel
-                  ? 'bg-sky-400 font-semibold text-slate-950'
+                  ? 'font-semibold text-slate-50 ring-2 ring-amber-400 shadow-[0_0_0_4px_rgba(245,165,36,0.18)]'
                   : n
-                    ? 'text-slate-50 hover:ring-1 hover:ring-sky-300/70'
-                    : 'cursor-default text-slate-600'
+                    ? 'text-slate-50 hover:ring-1 hover:ring-amber-300/70'
+                    : 'cursor-default bg-white/[0.05] text-slate-600'
               } ${key === todayKey && !sel ? 'ring-1 ring-white/40' : ''}`}
             >
               <span className="text-[11px] tabular-nums">{i + 1}</span>
-              {n ? <span className={`text-[8px] tabular-nums ${sel ? 'text-slate-900' : 'text-sky-200/80'}`}>{n}</span> : null}
+              {n ? <span className='text-[8px] tabular-nums text-amber-100/90'>{n}</span> : null}
             </button>
           );
         })}
@@ -162,16 +162,16 @@ export function DayReplay() {
 
   return (
     <div className="mt-2">
-      <SubLabel>Putar ulang hari</SubLabel>
+      <SubLabel>Replay a day</SubLabel>
       <DayCalendar days={days} value={day} onChange={setDay} />
       <div className="mt-1 flex items-center gap-1">
         <span className="min-w-0 flex-1 truncate text-[11px] text-slate-300">
           {day ? (
             <>
-              {day.split('-').reverse().join('-')} · <b className="text-slate-100">{trips ?? 0} truk</b>
+              {day.split('-').reverse().join('-')} · <b className="text-slate-100">{trips ?? 0} trucks</b>
             </>
           ) : (
-            'Pilih tanggal'
+            'Pick a date'
           )}
         </span>
         <button
@@ -180,7 +180,7 @@ export function DayReplay() {
           onClick={() => void replayDay(day, scale)}
           className="rounded border border-sky-300/50 bg-sky-400/15 px-2 py-0.5 text-[11px] text-slate-50 disabled:opacity-40"
         >
-          Putar
+          Play
         </button>
       </div>
       <div className="mt-1 grid grid-cols-3 gap-1">

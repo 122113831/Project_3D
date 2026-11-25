@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { useYard } from '@/store/useYard';
+import { isWarming } from '@/lib/modelWarmup';
 
 /**
  * Mengambil angka renderer apa adanya: draw call, triangle, dan FPS nyata.
@@ -40,10 +41,10 @@ export function PerfProbe() {
     try {
       const ctx = gl.getContext();
       const ext = ctx.getExtension('WEBGL_debug_renderer_info');
-      if (!ext) return 'tidak tersedia';
+      if (!ext) return 'not available';
       return String(ctx.getParameter(ext.UNMASKED_RENDERER_WEBGL));
     } catch {
-      return 'tidak tersedia';
+      return 'not available';
     }
   }, [gl]);
 
@@ -87,7 +88,8 @@ export function PerfProbe() {
       // per piksel. Kalau hambatannya CPU, angka ini tidak akan bergerak
       // banyak — dan itu sendiri sudah jadi petunjuk.
       if (dpr.current === 0) dpr.current = viewport.dpr;
-      if (adaptive && g.length >= 5) {
+      if (adaptive && isWarming()) streak.current = 0;
+      else if (adaptive && g.length >= 5) {
         const want = frameMs > TOO_SLOW_MS ? -1 : frameMs < FAST_ENOUGH_MS ? 1 : 0;
         // Butuh dua jendela berturut-turut ke arah yang sama sebelum bertindak:
         // mengubah dpr berarti mengalokasi ulang framebuffer, dan kalau

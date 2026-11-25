@@ -46,6 +46,9 @@ export type Selection =
 
 /** Kelipatan snap posisi, dalam meter. */
 export const SNAP = 0.5;
+
+/** Catatan (note) yang berarti gagal/ditolak — teks Inggris maupun pesan server Indonesia lama. */
+export const NOTE_WARN = /can't|cannot|failed|rejected|refused|disabled|not placed|nothing can be locked|tidak bisa|gagal|ditolak|dimatikan/i;
 export const snap = (v: number) => Math.round(v / SNAP) * SNAP;
 
 /**
@@ -73,6 +76,8 @@ type EditorState = {
    * daripada risiko diff yang salah.
    */
   past: YardLayout[];
+  /** Langkah yang diurungkan — dikembalikan dengan redo. Perubahan baru membuangnya. */
+  future: YardLayout[];
 
   setOpen: (v: boolean) => void;
   setTool: (t: EditorTool) => void;
@@ -165,6 +170,7 @@ type EditorState = {
    */
   shiftForGrowth: (blockId: string, base: { slots: number; rows: number }) => ShiftPlan[];
   undo: () => void;
+  redo: () => void;
   clearLayout: () => void;
   importLayout: (json: string) => string | null;
 
@@ -173,8 +179,8 @@ type EditorState = {
   // Berbeda dari addBlock, yang hanya menambah blok ke tata letak lokal. Yang
   // ini membuka dialog; dialognya yang memanggil endpoint tulis.
   /** Ukuran awal dialog blok baru; null berarti dialog tertutup. */
-  newBlock: { slots: number; rows: number; tiers: number } | null;
-  openNewBlock: (preset: { slots: number; rows: number; tiers: number }) => void;
+  newBlock: { slots: number; rows: number; tiers: number; reefer?: boolean } | null;
+  openNewBlock: (preset: { slots: number; rows: number; tiers: number; reefer?: boolean }) => void;
   closeNewBlock: () => void;
   /** Sedang ada penulisan ke database. */
   busy: boolean;
@@ -230,7 +236,7 @@ async function toggleSlotInDb(blockId: string, bay: number, row: number, tier: n
     lockTier = top + 1;
     raised = true;
     if (lockTier > block.tiers) {
-      ed.setNote(`Slot ${blockId}-${slot} row ${row + 1} terisi sampai tier teratas — tidak ada yang bisa dikunci.`);
+      ed.setNote(`Slot ${blockId}-${slot} row ${row + 1} is occupied up to the top tier — nothing can be locked.`);
       return;
     }
   }
@@ -239,13 +245,13 @@ async function toggleSlotInDb(blockId: string, bay: number, row: number, tier: n
     if (unlock) {
       const r = await slotAction({ action: 'unlock', block: blockId, slot, row: row + 1 });
       ed.setNote(
-        `Slot ${blockId}-${slot} row ${row + 1} dibuka: ${r.inserted ?? 0} baris YARD_ROWTIER disisipkan.`,
+        `Slot ${blockId}-${slot} row ${row + 1} unlocked: ${r.inserted ?? 0} YARD_ROWTIER rows inserted.`,
       );
     } else {
       const r = await slotAction({ action: 'lock', block: blockId, slot, row: row + 1, tier: lockTier });
       ed.setNote(
-        `Slot ${blockId}-${slot} row ${row + 1} dikunci dari tier ${lockTier}` +
-          `${raised ? ` (tier ${tier}–${top} masih berisi)` : ''}: ${r.deleted ?? 0} baris YARD_ROWTIER dihapus.`,
+        `Slot ${blockId}-${slot} row ${row + 1} locked from tier ${lockTier}` +
+          `${raised ? ` (tier ${tier}–${top} still occupied)` : ''}: ${r.deleted ?? 0} YARD_ROWTIER rows deleted.`,
       );
     }
     // Keadaan lokal ditulis EKSPLISIT dari apa yang baru saja dilakukan server,
@@ -269,7 +275,7 @@ async function clearBlockedInDb(blockId: string) {
   try {
     const r = await slotAction({ action: 'unlockBlock', block: blockId });
     useYard.getState().setBlocked(blockId, []);
-    ed.setNote(`Blok ${blockId} dibuka seluruhnya: ${r.inserted ?? 0} baris YARD_ROWTIER disisipkan.`);
+    ed.setNote(`Block ${blockId} fully unlocked: ${r.inserted ?? 0} YARD_ROWTIER rows inserted.`);
   } catch (e) {
     ed.setNote(e instanceof Error ? e.message : String(e));
   } finally {
@@ -291,6 +297,7 @@ const commit = (
       // Riwayat dibatasi 50: editor ini bukan aplikasi gambar, dan menyimpan
       // ratusan salinan tata letak hanya menahan memori tanpa gunanya.
       past: record ? [...s.past, s.layout].slice(-50) : s.past,
+      future: record ? [] : s.future,
     };
   });
 
@@ -306,12 +313,13 @@ export const useEditor = create<EditorState>((set, get) => ({
   source: 'depot',
   revision: 0,
   past: [],
+  future: [],
 
   connectFrom: null,
   connectAt: (x, z) => {
     const from = get().connectFrom;
     if (!from) {
-      set({ connectFrom: { x, z }, note: 'Titik awal dicatat — klik titik akhir.' });
+      set({ connectFrom: { x, z }, note: 'Start point set — click the end point.' });
       return;
     }
     const l = get().layout;
@@ -324,7 +332,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     commit(set, (cur) => ({ ...cur, roads: r.roads }));
     set({
       connectFrom: null,
-      note: `Sambung jalan: ${r.added} ubin baru${r.changed ? `, ${r.changed} simpang diperbarui` : ''} (${r.cells} petak).`,
+      note: `Connect road: ${r.added} new tiles${r.changed ? `, ${r.changed} junctions updated` : ''} (${r.cells} cells).`,
     });
   },
 
@@ -348,8 +356,8 @@ export const useEditor = create<EditorState>((set, get) => ({
     // sini akan menghasilkan blok yang tampak ada di lapangan tapi tidak ada
     // di database — persis jenis kebohongan yang ingin dihindari.
     if (item.spec.kind === 'block') {
-      const { slots, rows, tiers } = item.spec.block;
-      get().openNewBlock({ slots, rows, tiers });
+      const { slots, rows, tiers, reefer } = item.spec.block;
+      get().openNewBlock({ slots, rows, tiers, reefer });
     } else if (item.spec.kind === 'road') get().addRoad(x, z, item.spec.road);
     else get().addEquipment(item.spec.equipment, x, z, item.spec.extra);
   },
@@ -383,19 +391,19 @@ export const useEditor = create<EditorState>((set, get) => ({
       equipment: generateEquipment(data.blocks, data.meta.extentX, data.meta.extentZ),
     };
     saveLayout(source, layout);
-    set((s) => ({ source, layout, past: s.layout ? [...s.past, s.layout].slice(-50) : [] }));
+    set((s) => ({ source, layout, past: s.layout ? [...s.past, s.layout].slice(-50) : [], future: [] }));
   },
 
   switchSource: (source) => {
     if (source === get().source) return;
     // Riwayat undo ikut dikosongkan: isinya tata letak lapangan yang lain, dan
     // membatalkan ke sana berarti menempelkan susunan blok yang salah.
-    set({ source, layout: loadLayout(source), revision: 0, selected: null, past: [] });
+    set({ source, layout: loadLayout(source), revision: 0, selected: null, past: [], future: [] });
   },
 
   applyShared: (layout, revision) => {
     if (layout) saveLayout(get().source, layout);
-    set({ layout, revision, selected: null, past: [] });
+    set({ layout, revision, selected: null, past: [], future: [] });
   },
 
   setRevision: (revision) => set({ revision }),
@@ -449,13 +457,13 @@ export const useEditor = create<EditorState>((set, get) => ({
     const blocks = get().layout!.blocks;
     const clear = pushRoadClear(road, blocks);
     if (!clear) {
-      get().setNote('Ubin tidak ditaruh: titik itu di tengah blok. Taruh di ujung atau sisi lorong blok.');
+      get().setNote('Tile not placed: that point is in the middle of a block. Place it at the end or along the side aisle of the block.');
       return;
     }
     if (clear.x !== road.x || clear.z !== road.z) {
       road.x = clear.x;
       road.z = clear.z;
-      get().setNote('Ubin digeser keluar dari blok ke sisi terdekat.');
+      get().setNote('Tile moved out of the block to the nearest side.');
     }
     commit(set, (cur) => ({ ...cur, roads: [...cur.roads, road] }));
     set({ selected: { type: 'road', id: road.id } });
@@ -599,7 +607,25 @@ export const useEditor = create<EditorState>((set, get) => ({
       const prev = s.past.at(-1);
       if (!prev) return {};
       saveLayout(s.source, prev);
-      return { layout: prev, past: s.past.slice(0, -1), selected: null };
+      return {
+        layout: prev,
+        past: s.past.slice(0, -1),
+        future: s.layout ? [...s.future, s.layout].slice(-50) : s.future,
+        selected: null,
+      };
+    }),
+
+  redo: () =>
+    set((s) => {
+      const next = s.future.at(-1);
+      if (!next) return {};
+      saveLayout(s.source, next);
+      return {
+        layout: next,
+        future: s.future.slice(0, -1),
+        past: s.layout ? [...s.past, s.layout].slice(-50) : s.past,
+        selected: null,
+      };
     }),
 
   clearLayout: () => {
@@ -610,6 +636,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       layout: null,
       selected: null,
       past: s.layout ? [...s.past, s.layout].slice(-50) : [],
+      future: [],
     }));
   },
 
@@ -646,7 +673,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     try {
       const parsed = JSON.parse(json) as YardLayout;
       if (parsed?.version !== 1 || !Array.isArray(parsed.blocks)) {
-        return 'Bukan berkas tata letak yang dikenali (version harus 1).';
+        return 'Not a recognized layout file (version must be 1).';
       }
       const layout: YardLayout = {
         ...emptyLayout(),
@@ -660,10 +687,11 @@ export const useEditor = create<EditorState>((set, get) => ({
         layout,
         selected: null,
         past: s.layout ? [...s.past, s.layout].slice(-50) : [],
+      future: [],
       }));
       return null;
     } catch (e) {
-      return e instanceof Error ? e.message : 'Gagal membaca JSON.';
+      return e instanceof Error ? e.message : 'Failed to read JSON.';
     }
   },
 }));

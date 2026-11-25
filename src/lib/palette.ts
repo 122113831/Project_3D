@@ -70,11 +70,11 @@ export const CTR_TYPE_LABEL: Record<string, string> = {
 export const ctrTypeLabel = (code: string) => CTR_TYPE_LABEL[code] ?? (code || '—');
 
 export const STATUS_LABEL: Record<ContainerStatus, string> = {
-  full: 'Isi (full)',
-  empty: 'Kosong (empty)',
+  full: 'Full',
+  empty: 'Empty',
   reefer: 'Reefer',
   dangerous: 'Dangerous goods',
-  damaged: 'Rusak',
+  damaged: 'Damaged',
 };
 
 const SIZE_COLOR: Record<number, string> = {
@@ -181,9 +181,9 @@ export function colorFor(c: YardContainer, mode: ColorMode, style: PaintStyle = 
 }
 
 export const COLOR_MODE_LABEL: Record<ColorMode, string> = {
-  none: 'Tanpa warna',
+  none: 'No coloring',
   line: 'Shipping line',
   status: 'Status',
-  size: 'Ukuran',
+  size: 'Size',
   tier: 'Tier',
 };

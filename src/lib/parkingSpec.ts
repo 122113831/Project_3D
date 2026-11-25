@@ -28,7 +28,7 @@ export const PARKING_VEHICLE: Record<ParkingVehicle, { name: string; bayW: numbe
   // RS: tapak 15 × 6,4 m termasuk spreader melintang 6,1 m.
   reachStacker: { name: 'Reach stacker', bayW: 7.5, bayL: 17 },
   // Truk + chassis: 15,4 × 2,6 m.
-  truck: { name: 'Truk + chassis', bayW: 4, bayL: 18 },
+  truck: { name: 'Truck + chassis', bayW: 4, bayL: 18 },
 };
 
 export const PARKING_LIMITS = { bays: [1, 30] } as const;
@@ -37,7 +37,7 @@ export const PARKING_DEFAULT: ParkingSpec = {
   bays: 4,
   rows: 1,
   vehicle: 'reachStacker',
-  label: 'PARKIR RS',
+  label: 'RS PARKING',
 };
 
 /** Jarak tepi pelat ke garis lajur terluar. */

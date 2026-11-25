@@ -33,7 +33,7 @@ const NAMED: Partial<Record<EquipmentKind, { prefix: string; type: string }>> = 
   reachStacker: { prefix: 'RS', type: 'Reach stacker' },
   sts: { prefix: 'STS', type: 'STS crane' },
   itv: { prefix: 'ITV', type: 'ITV' },
-  truck: { prefix: 'TRK', type: 'Truk' },
+  truck: { prefix: 'TRK', type: 'Truck' },
 };
 
 /** Jenis alat yang punya kode (dan isian kode di panel editor). */

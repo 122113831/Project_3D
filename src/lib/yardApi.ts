@@ -41,7 +41,7 @@ async function send<T>(method: 'POST' | 'PATCH', body: unknown): Promise<T> {
     body: JSON.stringify(body),
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json?.error || `Gagal (HTTP ${res.status}).`);
+  if (!res.ok) throw new Error(json?.error || `Failed (HTTP ${res.status}).`);
   return json as T;
 }
 
@@ -71,7 +71,7 @@ export async function resizeBlockInDb(p: {
     body: JSON.stringify(p),
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json?.error || `Gagal (HTTP ${res.status}).`);
+  if (!res.ok) throw new Error(json?.error || `Failed (HTTP ${res.status}).`);
   return json as ResizeResult;
 }
 
@@ -91,7 +91,7 @@ export async function slotAction(
     body: JSON.stringify(body),
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json?.error || `Gagal (HTTP ${res.status}).`);
+  if (!res.ok) throw new Error(json?.error || `Failed (HTTP ${res.status}).`);
   return json;
 }
 
@@ -120,7 +120,7 @@ export type SharedLayout = {
 export async function fetchSharedLayout(source: YardSource): Promise<SharedLayout> {
   const res = await fetch(`/api/yard/layout?source=${source}`, { cache: 'no-store' });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json?.error || `Gagal memuat tata letak (HTTP ${res.status}).`);
+  if (!res.ok) throw new Error(json?.error || `Failed to load layout (HTTP ${res.status}).`);
   return json as SharedLayout;
 }
 
@@ -145,8 +145,8 @@ export async function saveSharedLayout(
     body: JSON.stringify({ source, layout, baseRevision }),
   });
   const json = await res.json().catch(() => ({}));
-  if (res.status === 409) throw new LayoutStale(json?.error ?? 'Tata letak basi.', json?.current ?? null);
-  if (!res.ok) throw new Error(json?.error || `Gagal menyimpan tata letak (HTTP ${res.status}).`);
+  if (res.status === 409) throw new LayoutStale(json?.error ?? 'Layout is stale.', json?.current ?? null);
+  if (!res.ok) throw new Error(json?.error || `Failed to save layout (HTTP ${res.status}).`);
   return json as SharedLayout;
 }
 
@@ -160,7 +160,7 @@ export async function fetchGateTrips(limit: number, openOnly = false): Promise<G
     cache: 'no-store',
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json?.error || `Gagal membaca GATE_HIST (HTTP ${res.status}).`);
+  if (!res.ok) throw new Error(json?.error || `Failed to read GATE_HIST (HTTP ${res.status}).`);
   return json as GateTrip[];
 }
 
@@ -168,7 +168,7 @@ export async function fetchGateTrips(limit: number, openOnly = false): Promise<G
 export async function fetchGateDay(day: string): Promise<GateTrip[]> {
   const res = await fetch(`/api/yard/trips?day=${encodeURIComponent(day)}`, { cache: 'no-store' });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json?.error || `Gagal membaca GATE_HIST (HTTP ${res.status}).`);
+  if (!res.ok) throw new Error(json?.error || `Failed to read GATE_HIST (HTTP ${res.status}).`);
   return json as GateTrip[];
 }
 
@@ -183,7 +183,7 @@ export async function fetchGateDays(limit = 30): Promise<{ day: string; trips: n
 export async function fetchContainer(no: string): Promise<YardContainer | null> {
   const res = await fetch(`/api/yard/container?no=${encodeURIComponent(no)}`, { cache: 'no-store' });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json?.error || `Gagal membaca kontainer (HTTP ${res.status}).`);
+  if (!res.ok) throw new Error(json?.error || `Failed to read container (HTTP ${res.status}).`);
   return json?.found ? (json.container as YardContainer) : null;
 }
 
@@ -195,6 +195,6 @@ import type { YardKpi } from './depotKpi';
 export async function fetchKpi(): Promise<YardKpi> {
   const res = await fetch('/api/yard/kpi', { cache: 'no-store' });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json?.error || `Gagal menghitung KPI (HTTP ${res.status}).`);
+  if (!res.ok) throw new Error(json?.error || `Failed to compute KPIs (HTTP ${res.status}).`);
   return json as YardKpi;
 }

@@ -201,7 +201,7 @@ export function validateLayout(input: {
         out.push({
           id: `overlap:${blocks[i].id}:${blocks[j].id}`,
           level: 'error',
-          text: `Blok ${blocks[i].id} dan ${blocks[j].id} bertindihan`,
+          text: `Blocks ${blocks[i].id} and ${blocks[j].id} overlap`,
           x: (a.cx + b.cx) / 2,
           z: (a.cz + b.cz) / 2,
           span: Math.max(a.sx, b.sx) * 1.2,
@@ -220,7 +220,7 @@ export function validateLayout(input: {
         out.push({
           id: `road-in-block:${r.id}`,
           level: 'error',
-          text: `Ubin jalan tertimpa blok ${b.id}`,
+          text: `Road tile covered by block ${b.id}`,
           x: r.x,
           z: r.z,
           span: ROAD.tile * 3,
@@ -240,7 +240,7 @@ export function validateLayout(input: {
         out.push({
           id: `equip-in-block:${e.id}`,
           level: 'warn',
-          text: `${e.kind === 'lamp' ? 'Tiang lampu' : e.kind === 'warehouse' ? 'Gudang' : e.kind === 'parking' ? 'Parkir alat' : GATE_KINDS.has(e.kind) ? 'Gate' : 'Alat'} berdiri di dalam blok ${b.id}`,
+          text: `${e.kind === 'lamp' ? 'Light pole' : e.kind === 'warehouse' ? 'Warehouse' : e.kind === 'parking' ? 'Equipment parking' : GATE_KINDS.has(e.kind) ? 'Gate' : 'Equipment'} stands inside block ${b.id}`,
           x: e.x,
           z: e.z,
           span: 40,
@@ -269,7 +269,7 @@ export function validateLayout(input: {
     out.push({
       id: `rtg-lane:${e.id}`,
       level: 'warn',
-      text: `RTG blok ${near.id} tidak menaungi lajur truk — truk bisa tertabrak. Geser RTG (akan dijepret otomatis)`,
+      text: `Block ${near.id} RTG does not span the truck lane — trucks could be hit. Move the RTG (it will snap automatically)`,
       x: e.x,
       z: e.z,
       span: 40,
@@ -289,10 +289,10 @@ export function validateLayout(input: {
     );
     const span = Math.max(...blocks.map((b) => bObb.get(b.id)!.sx)) * 2;
     if (!gates.some((g) => g.kind !== 'gateOut')) {
-      out.push({ id: 'no-gate-in', level: 'error', text: 'Belum ada gate masuk', ...centre, span });
+      out.push({ id: 'no-gate-in', level: 'error', text: 'No gate in yet', ...centre, span });
     }
     if (!gates.some((g) => g.kind !== 'gateIn')) {
-      out.push({ id: 'no-gate-out', level: 'error', text: 'Belum ada gate keluar', ...centre, span });
+      out.push({ id: 'no-gate-out', level: 'error', text: 'No gate out yet', ...centre, span });
     }
   }
   if (diag) {
@@ -302,7 +302,7 @@ export function validateLayout(input: {
         out.push({
           id: `gate-unlinked:${id}`,
           level: 'error',
-          text: 'Gate tidak menempel pada jalan',
+          text: 'Gate is not attached to a road',
           x: g.x,
           z: g.z,
           span: ROAD.tile * 3,
@@ -318,7 +318,7 @@ export function validateLayout(input: {
           out.push({
             id: `unreachable:${id}`,
             level: 'error',
-            text: `Blok ${id} tidak tersambung jalan ke gate`,
+            text: `Block ${id} has no road connection to a gate`,
             x: o.cx,
             z: o.cz,
             span: o.sx * 1.5,

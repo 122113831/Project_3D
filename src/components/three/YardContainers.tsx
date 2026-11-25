@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { memo, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useGLTF } from '@react-three/drei';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -28,11 +28,12 @@ import { writeColors, writeMatrices } from '@/lib/instances';
 import { isoFor } from '@/lib/containerCode';
 import { useCodedGeometry } from './useCodedGeometry';
 
-import { realisticContainerModel } from '@/lib/realisticContainer';
+import { isOpenTop, realisticContainerModel } from '@/lib/realisticContainer';
 import { realisticReeferModel } from '@/lib/realisticReefer';
 import { realisticTankModel } from '@/lib/realisticTank';
 import { marksListeners } from '@/lib/realisticContainer';
-import type { Livery } from '@/lib/livery';
+import { liveryKey, type Livery } from '@/lib/livery';
+import { ensureModel, onModelBuilt, trackCompile } from '@/lib/modelWarmup';
 import { useLivery } from '@/store/useLivery';
 import type { YardBlock, YardContainer } from '@/lib/types';
 import { useYard } from '@/store/useYard';
@@ -241,23 +242,38 @@ type StackProps = {
  * seluruh matriks ditulis + di-upload lagi — persis saat kamera sedang
  * bergerak, yaitu saat frame budget paling sempit.
  */
-function ContainerStack({ block, items, far, near, nearOwnColors = false, bodyPaint }: StackProps) {
+const ContainerStack = memo(function ContainerStack({ block, items, far, near, nearOwnColors = false, bodyPaint }: StackProps) {
   const farRef = useRef<THREE.Group>(null);
   const nearRef = useRef<THREE.Group>(null);
   const invalidate = useThree((s) => s.invalidate);
+  const gl = useThree((s) => s.gl);
+  const scene = useThree((s) => s.scene);
+  const camera = useThree((s) => s.camera);
 
   useEffect(() => {
     const farGroup = farRef.current;
     const nearGroup = nearRef.current;
     if (!farGroup || !nearGroup) return;
     invalidate();
-    return registerLod({
-      key: block.id,
-      far: farGroup,
-      near: nearGroup,
-      bounds: blockBounds(block),
-    });
-  }, [block, near, invalidate]);
+    // Shader level dekat dikompilasi DULU di latar belakang
+    // (KHR_parallel_shader_compile), baru bloknya boleh naik ke detail.
+    // Tanpa ini kompilasinya terjadi saat level dekat pertama kali tampak —
+    // persis saat pengguna zoom — dan satu program bisa memblokir ±0,5 dtk
+    // (terukur ±3,5 dtk total saat zoom tepat setelah refresh).
+    let unregister: (() => void) | null = null;
+    let cancelled = false;
+    trackCompile(gl.compileAsync(nearGroup, camera, scene))
+      .catch(() => undefined)
+      .then(() => {
+        if (cancelled) return;
+        unregister = registerLod({ key: block.id, far: farGroup, near: nearGroup, bounds: blockBounds(block) });
+        invalidate();
+      });
+    return () => {
+      cancelled = true;
+      unregister?.();
+    };
+  }, [block, near, invalidate, gl, scene, camera]);
 
   if (items.length === 0) return null;
 
@@ -295,7 +311,7 @@ function ContainerStack({ block, items, far, near, nearOwnColors = false, bodyPa
       </group>
     </>
   );
-}
+});
 
 /** Satu useFrame untuk seluruh lapangan, bukan satu per blok. */
 function LodDriver() {
@@ -309,7 +325,7 @@ function LodDriver() {
 }
 
 type Kind = 'gp' | 'reefer' | 'tank';
-type Group = { key: string; kind: Kind; size: 20 | 40; livery: Livery | null; items: YardContainer[] };
+type Group = { key: string; kind: Kind; size: 20 | 40; livery: Livery | null; openTop: boolean; items: YardContainer[] };
 
 function Blocks({ models, real }: { models: DetailModels | null; real: boolean }) {
   const data = useYardView();
@@ -357,10 +373,12 @@ function Blocks({ models, real }: { models: DetailModels | null; real: boolean }
           // lain tetap aset GLB lamanya.
           const found = useLiveries ? resolve(c) : null;
           const livery = kind === 'tank' ? (found?.model === 'TANK' ? found : null) : found;
-          const key = `${kind}${size}|${livery?.code ?? ''}`;
+          // Open top (22U1 …) punya geometri sendiri: atap terpal.
+          const openTop = kind === 'gp' && isOpenTop(c);
+          const key = `${kind}${size}${openTop ? 'ot' : ''}|${livery?.code ?? ''}`;
           const g = groups.get(key);
           if (g) g.items.push(c);
-          else groups.set(key, { key, kind, size, livery, items: [c] });
+          else groups.set(key, { key, kind, size, livery, openTop, items: [c] });
         }
         for (const g of groups.values()) {
           const k = `${raw.id}|${g.key}`;
@@ -373,17 +391,28 @@ function Blocks({ models, real }: { models: DetailModels | null; real: boolean }
     [data, resolve, useLiveries],
   );
 
+  // Model realistis per livery dibangun bertahap (modelWarmup): kelompok yang
+  // modelnya belum siap tampil dengan level jauh dulu, lalu naik ke detail
+  // begitu selesai — bukan semua livery sekaligus dalam satu render (long
+  // task 1–2,5 dtk saat halaman dibuka).
+  const [, bump] = useState(0);
+  useEffect(() => onModelBuilt(() => bump((n) => n + 1)), []);
+
   const nearFor = (g: Group): ModelPart[] | null => {
     if (!detail) return null;
+    const variant = apaAdanya ? 'plain' : 'tint';
     if (useLiveries && g.kind === 'tank' && g.livery) {
-      return realisticTankModel(apaAdanya ? 'plain' : 'tint', g.livery).parts20;
+      const liv = g.livery;
+      const build = () => realisticTankModel(variant, liv);
+      return ensureModel(`tank|${variant}|${liveryKey(liv)}`, build) ? build().parts20 : null;
     }
     if (useLiveries && g.kind !== 'tank') {
-      const variant = apaAdanya ? 'plain' : 'tint';
-      const model =
-        g.kind === 'gp'
-          ? realisticContainerModel(variant, g.livery ?? undefined)
-          : realisticReeferModel(variant, g.livery ?? undefined);
+      const liv = g.livery ?? undefined;
+      const build = () =>
+        g.kind === 'gp' ? realisticContainerModel(variant, liv, 'yard', g.openTop) : realisticReeferModel(variant, liv);
+      const key = `${g.kind}|${variant}|${liv ? liveryKey(liv) : '-'}|${g.openTop}`;
+      if (!ensureModel(key, build)) return null;
+      const model = build();
       return g.size === 40 ? model.parts40! : model.parts20;
     }
     const set = g.kind === 'gp' ? detail.container : g.kind === 'reefer' ? detail.reefer : detail.tank;

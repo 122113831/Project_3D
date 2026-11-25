@@ -21,7 +21,7 @@ export async function POST(request: Request) {
     if (body?.action === 'lock') return NextResponse.json(await lockSlot(ref));
     if (body?.action === 'unlock') return NextResponse.json(await unlockSlot(ref));
     if (body?.action === 'unlockBlock') return NextResponse.json(await unlockBlock(body?.block));
-    return NextResponse.json({ error: 'action harus lock, unlock, atau unlockBlock.' }, { status: 400 });
+    return NextResponse.json({ error: 'action must be lock, unlock, or unlockBlock.' }, { status: 400 });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     const status = e instanceof WriteRefused ? 400 : 503;

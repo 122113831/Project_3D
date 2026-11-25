@@ -60,10 +60,10 @@ export async function GET() {
     const cause = (e as { cause?: { code?: string } })?.cause?.code;
     const hint =
       cause === 'SELF_SIGNED_CERT_IN_CHAIN' || cause === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE'
-        ? ' — HTTPS disadap antivirus/proxy; pasang sertifikat akarnya lewat NODE_EXTRA_CA_CERTS'
+        ? ' — HTTPS intercepted by antivirus/proxy; install its root certificate via NODE_EXTRA_CA_CERTS'
         : '';
     return NextResponse.json(
-      { error: `Cuaca tidak tersedia: ${message}${cause ? ` (${cause})` : ''}${hint}` },
+      { error: `Weather unavailable: ${message}${cause ? ` (${cause})` : ''}${hint}` },
       { status: 503 },
     );
   }

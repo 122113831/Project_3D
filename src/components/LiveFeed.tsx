@@ -46,7 +46,7 @@ export function LiveFeed() {
         const open = await fetchGateTrips(100, true);
         if (!alive) return;
         for (const r of open) {
-          const base = { jobNo: r.jobNo, ctrNo: r.ctrNo, truckNo: r.truckNo, flow: r.flow };
+          const base = { jobNo: r.jobNo, ctrNo: r.ctrNo, truckNo: r.truckNo, flow: r.flow, equipment: r.equipment };
           ingest({ ...base, kind: 'GATE_IN', gateNo: r.gateInNo, at: r.gateIn });
           if (r.handled) ingest({ ...base, kind: 'HANDLED', at: r.handled });
         }
@@ -76,7 +76,7 @@ export function LiveFeed() {
       try {
         ingest(JSON.parse((ev as MessageEvent).data) as LiveEvent);
       } catch {
-        setLive({ error: 'pesan kejadian tidak bisa dibaca' });
+        setLive({ error: 'event message could not be read' });
       }
     };
     // `recent`: kejadian yang baru lewat sebelum peramban ini tersambung.

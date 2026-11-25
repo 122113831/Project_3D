@@ -9,7 +9,7 @@ import { isoFor } from '@/lib/containerCode';
 import { createContainerGeometry } from '@/lib/geometry';
 import { liveryKind } from '@/lib/livery';
 import { colorFor } from '@/lib/palette';
-import { realisticContainerModel } from '@/lib/realisticContainer';
+import { isOpenTop, realisticContainerModel } from '@/lib/realisticContainer';
 import { realisticReeferModel } from '@/lib/realisticReefer';
 import { realisticTankModel } from '@/lib/realisticTank';
 import type { YardContainer } from '@/lib/types';
@@ -74,7 +74,7 @@ function useCarriedLook(c: YardContainer) {
         const model =
           kind === 'REEFER'
             ? realisticReeferModel(variant, livery ?? undefined)
-            : realisticContainerModel(variant, livery ?? undefined);
+            : realisticContainerModel(variant, livery ?? undefined, 'yard', isOpenTop(c));
         parts = c.size === 40 && model.parts40 ? model.parts40 : model.parts20;
       }
     }

@@ -8,7 +8,7 @@ import {
   type AssetCategory,
 } from '@/lib/editorAssets';
 import { renderThumbnails } from '@/lib/thumbnails';
-import { useEditor } from '@/store/useEditor';
+import { NOTE_WARN, useEditor } from '@/store/useEditor';
 import { useYardView } from '@/store/useYardView';
 
 // Gate diletakkan setelah Jalan karena ia berdiri DI ATAS jalan — urutan
@@ -71,7 +71,7 @@ export function EditorPalette() {
               : 'text-slate-400 hover:text-slate-100'
           }`}
         >
-          Pilih
+          Select
         </button>
         {/* Mengunci slot bukan "menaruh aset", jadi ia tombol modus di sebelah
             Pilih, bukan kartu di palet. */}
@@ -84,7 +84,7 @@ export function EditorPalette() {
               : 'text-slate-400 hover:text-slate-100'
           }`}
         >
-          Kunci slot
+          Lock slots
         </button>
         <button
           type="button"
@@ -92,15 +92,15 @@ export function EditorPalette() {
           className={`rounded-md px-3 py-1 text-[12px] transition-colors ${
             tool === 'connect' ? 'bg-sky-400/25 text-slate-50' : 'text-slate-400 hover:text-slate-100'
           }`}
-          title="Klik titik awal lalu titik akhir — ubin jalan dirangkai otomatis menghindari blok"
+          title="Click a start point, then an end point — road tiles are laid out automatically around blocks"
         >
-          Sambung jalan
+          Connect road
         </button>
         {/* Tier yang dibidik: klik di lapangan memilih slot/row pada bidang
             setinggi tier ini. Tier 1 = kunci seluruh kolom. */}
         {tool === 'slots' && (
           <span className="ml-1 flex items-center gap-0.5 text-[10px] text-slate-400">
-            dari tier
+            from tier
             {Array.from({ length: maxTiers }, (_, i) => i + 1).map((t) => (
               <button
                 key={t}
@@ -137,31 +137,31 @@ export function EditorPalette() {
       <div className='pointer-events-none text-[10px] text-slate-400'>
         {tool === 'connect' ? (
           <>
-            Klik <b>titik awal</b> lalu <b>titik akhir</b> (aspal kosong atau jalan yang sudah ada):
-            ubin dirangkai lewat kisi, memutari blok, dan simpang dibuat otomatis. Esc membatalkan.
+            Click a <b>start point</b>, then an <b>end point</b> (empty asphalt or an existing road):
+            tiles are laid along the grid, around blocks, and junctions are created automatically. Esc cancels.
             {note && <span className="mt-1 block rounded bg-slate-950/70 px-2 py-0.5 text-sky-300">{note}</span>}
           </>
         ) : tool === 'slots' ? (
           <>
-            Pilih tier, lalu klik petak di lapangan: slot/row itu dikunci <b>dari tier {lockTier} sampai
-            teratas</b>. Klik sel merah untuk membukanya lagi. Abu-abu = sudah berisi kontainer.
+            Pick a tier, then click a cell in the yard: that slot/row is locked <b>from tier {lockTier} up to
+            the top</b>. Click a red cell to unlock it again. Gray = already holds containers.
             {/* Hasil klik terakhir, tepat di tempat mata sedang melihat. */}
             {(busy || note) && (
               <span
                 className={`mt-1 block rounded bg-slate-950/70 px-2 py-0.5 ${
-                  busy ? 'text-slate-300' : /tidak bisa|gagal|ditolak|dimatikan/i.test(note ?? '') ? 'text-amber-300' : 'text-sky-300'
+                  busy ? 'text-slate-300' : NOTE_WARN.test(note ?? '') ? 'text-amber-300' : 'text-sky-300'
                 }`}
               >
-                {busy ? 'Menyimpan ke YARD_ROWTIER…' : note}
+                {busy ? 'Saving to YARD_ROWTIER…' : note}
               </span>
             )}
           </>
         ) : (
           <>
             {category === 'block'
-              ? 'Klik kartu blok untuk membuat blok baru di database.'
-              : 'Klik kartu, lalu klik di lapangan untuk menaruhnya.'}
-            {' · Klik objek untuk memilih, klik lagi dan seret untuk memindah, R memutar 15°.'}
+              ? 'Click the block card to create a new block in the database.'
+              : 'Click a card, then click in the yard to place it.'}
+            {' · Click an object to select it, click again and drag to move it, R rotates 15°.'}
           </>
         )}
       </div>
@@ -179,8 +179,8 @@ export function EditorPalette() {
                 // database, jadi ia lewat dialog dulu — bukan langsung
                 // ditempel ke lapangan seperti jalan dan alat.
                 if (item.spec.kind === 'block') {
-                  const { slots, rows, tiers } = item.spec.block;
-                  openNewBlock({ slots, rows, tiers });
+                  const { slots, rows, tiers, reefer } = item.spec.block;
+                  openNewBlock({ slots, rows, tiers, reefer });
                 } else setAsset(item.id);
               }}
               title={item.detail}
@@ -203,7 +203,7 @@ export function EditorPalette() {
                     draggable={false}
                   />
                 ) : (
-                  <span className="text-[10px] text-slate-500">memuat…</span>
+                  <span className="text-[10px] text-slate-500">loading…</span>
                 )}
               </div>
               <div className="border-t border-white/10 px-2 py-1.5">

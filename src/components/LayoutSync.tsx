@@ -66,8 +66,8 @@ export function LayoutSync() {
           synced.current = layout;
           applyShared(layout, shared.revision);
           setNote(
-            `Tata letak bersama dimuat (revisi ${shared.revision}` +
-              `${shared.updatedBy ? `, terakhir oleh ${shared.updatedBy}` : ''}).`,
+            `Shared layout loaded (revision ${shared.revision}` +
+              `${shared.updatedBy ? `, last by ${shared.updatedBy}` : ''}).`,
           );
           return;
         }
@@ -91,8 +91,8 @@ export function LayoutSync() {
       } catch (e) {
         if (!alive) return;
         setNote(
-          `Tata letak bersama tidak bisa dimuat: ${e instanceof Error ? e.message : String(e)}. ` +
-            'Yang tampil adalah salinan di peramban ini.',
+          `Shared layout could not be loaded: ${e instanceof Error ? e.message : String(e)}. ` +
+            'Showing the copy stored in this browser.',
         );
       }
     })();
@@ -141,7 +141,7 @@ async function push(
     const saved = await saveSharedLayout(source, layout, baseRevision);
     synced.current = useEditor.getState().layout;
     setRevision(saved.revision);
-    setNote(`Tata letak tersimpan untuk semua pengguna (revisi ${saved.revision}).`);
+    setNote(`Layout saved for all users (revision ${saved.revision}).`);
   } catch (e) {
     if (e instanceof LayoutStale) {
       // Sengaja TIDAK menimpa dan tidak mencoba lagi: yang ada di server adalah
@@ -150,6 +150,6 @@ async function push(
       setNote(e.message);
       return;
     }
-    setNote(`Tata letak gagal disimpan: ${e instanceof Error ? e.message : String(e)}`);
+    setNote(`Layout failed to save: ${e instanceof Error ? e.message : String(e)}`);
   }
 }

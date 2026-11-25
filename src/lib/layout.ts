@@ -43,6 +43,12 @@ export type LayoutBlock = {
    * terpisah. Kosong = true, supaya tata letak lama tidak berubah.
    */
   ownRoad?: boolean;
+  /**
+   * Blok khusus reefer: rak listrik baja (platform per tier, stopkontak per
+   * bay, tangga) berdiri di sisi panjang seberang lajur truk. Hanya tata
+   * letak — CORE_YARD_BLOCK tidak berubah. Kosong = blok biasa.
+   */
+  reefer?: boolean;
 };
 
 /** Jenis alat yang bisa diletakkan, sekaligus daftar aset di palet editor. */
@@ -65,17 +71,17 @@ export const EQUIPMENT_KINDS = [
 export type EquipmentKind = (typeof EQUIPMENT_KINDS)[number];
 
 export const EQUIPMENT_LABEL: Record<EquipmentKind, string> = {
-  rtg: 'RTG (prosedural)',
+  rtg: 'RTG (procedural)',
   rtgAsset: 'RTG crane',
-  rtgDetail: 'RTG detail (kuning)',
-  rtgDetail2: 'RTG detail 2 (festoon)',
-  warehouse: 'Gudang',
-  parking: 'Parkir alat',
+  rtgDetail: 'Detailed RTG (yellow)',
+  rtgDetail2: 'Detailed RTG 2 (festoon)',
+  warehouse: 'Warehouse',
+  parking: 'Equipment parking',
   reachStacker: 'Reach stacker',
-  truck: 'Truk + chassis',
+  truck: 'Truck + chassis',
   itv: 'ITV',
   sts: 'STS crane',
-  lamp: 'Tiang lampu',
+  lamp: 'Light pole',
   gate: 'Gate in/out',
   gateIn: 'Gate in',
   gateOut: 'Gate out',
@@ -391,6 +397,7 @@ export function applyLayout(data: YardData, layout: YardLayout | null): YardData
       slotStart: lb.slotStart ?? src?.slotStart ?? 'L',
       containers,
       ownRoad: lb.ownRoad ?? true,
+      reefer: lb.reefer ?? false,
       // Dirapikan di sini sekali, supaya semua yang menggambar atau menghitung
       // menerima daftar yang sudah pasti di dalam ukuran blok.
       //

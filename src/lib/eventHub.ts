@@ -129,7 +129,7 @@ function ensureMqtt() {
     try {
       ca = [...tls.rootCertificates, fs.readFileSync(path.resolve(process.cwd(), caFile), 'utf8')];
     } catch (e) {
-      h.status.lastError = `MQTT_CA_FILE tidak terbaca: ${(e as Error).message}`;
+      h.status.lastError = `MQTT_CA_FILE unreadable: ${(e as Error).message}`;
     }
   }
 
@@ -169,7 +169,7 @@ function ensureMqtt() {
     try {
       raw = JSON.parse(payload.toString('utf8'));
     } catch {
-      h.status.lastError = 'pesan bukan JSON';
+      h.status.lastError = 'message is not JSON';
       return;
     }
     // Satu pesan boleh berisi satu kejadian atau sekumpulan kejadian.
@@ -177,7 +177,7 @@ function ensureMqtt() {
     for (const it of items) {
       const e = normalizeEvent(it);
       if (e) publish(e);
-      else h.status.lastError = 'pesan tanpa nomor kontainer diabaikan';
+      else h.status.lastError = 'message without a container number ignored';
     }
   });
 }

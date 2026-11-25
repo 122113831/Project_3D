@@ -472,6 +472,23 @@ mengubah waktu frame, jadi biayanya per segitiga, bukan per piksel):
 - Anisotropi tekstur 4 (bukan 8/16), normal map (1 sampel) menggantikan bump
   map (3 sampel) di jendela detail.
 
+Zoom tepat setelah refresh (diukur 3 dtk setelah lapangan tampil): semula
+long task terpanjang 1,6–2,5 dtk dan TBT 6–7,5 dtk, kini ≤76 ms dan TBT
+0–50 ms. Yang dibetulkan:
+
+- Shader level dekat dikompilasi di latar belakang (`compileAsync`) saat
+  modelnya selesai dibangun. Blok baru naik ke level detail setelah shadernya
+  siap; sebelumnya kompilasi terjadi saat level dekat pertama kali tampak.
+- `checkShaderErrors` dimatikan: di Chrome Windows (ANGLE/D3D11)
+  `getProgramInfoLog` memblokir ±1–2 dtk saat program pertama dipakai.
+  Tambahkan `?shaderdebug` di URL untuk menyalakannya lagi saat menyunting
+  shader.
+- `ContainerStack` di-memo, jadi satu model livery yang selesai dibangun tidak
+  lagi merender ulang seluruh lapangan.
+- Kualitas adaptif tidak mengubah dpr selama model atau shader masih
+  disiapkan (`isWarming`). Mengubah ukuran kanvas di masa itu memblokir
+  0,3–4,3 dtk.
+
 Saat pewarnaan nyala, cat badan mengikuti line/status dan marka tetap
 terbaca. Matikan **Kontainer realistis** di Opsi tampilan untuk kembali ke
 aset lama.
@@ -520,7 +537,35 @@ yang isinya sama dengan data awal ([livery.ts](src/lib/livery.ts)).
   dibangun dari sini, jadi keduanya tidak bisa berbeda.
 - **Isi saat ini**: Maersk, Meratus, MSC, ONE, CMA CGM, COSCO, Evergreen,
   Hapag-Lloyd, HMM, Wan Hai, KMTC, OOCL, PIL, RCL, Yang Ming, SPIL, Tanto,
-  Temas, dan Samudera. Temas dan Samudera belum punya prefix.
+  Temas, Samudera (SIKU), Triton, SITC (SITU), dan Textainer (AMFU, TEMU,
+  TEXU, TGHU, XINU). Temas belum punya prefix.
+- **Temas** (`TEMAS_GP`): badan merah marun, bendera berkibar merah-putih-biru
+  berlambang + "TEMAS LINE" putih miring + alamat web (`temas-line`).
+- **Textainer** (`TEX_GP` untuk GP & open top, `TEX_REEFER` badan putih):
+  "t e x" huruf kecil serif bersusun tegak dekat ujung kiri (`tex-vertical`),
+  dan "tex" mendatar di daun pintu kiri atas (`DOOR_LOGO`).
+- **Eagletainer** (`EAGLE_TANK`, ISO tank, prefix EOLU): tabung putih, rangka
+  biru terang (`TANK_FRAME` — warna rangka per livery tank), "EAGLETAINER" biru
+  tebal di tengah tabung, dan atap tank CIMC (`TANK_TOP: 'cimc'`): dua jalur
+  pijakan aluminium bertekstur, grating di kedua ujung lajur tengah, dua kotak
+  manhole cekung bertutup bundar berbaut, dan palang rangka melintang.
+- **Menambah merek tanpa menimpa master**: `node scripts/seed-livery-codes.mjs
+  KODE…` hanya menulis livery yang disebut beserta aturan prefixnya.
+- **SITC** (`SITC_GP`): badan biru, "SITC" putih tebal miring bergaris tepi
+  biru tua di tengah (`sitc-center`).
+- **Samudera** (`SAMUDERA_GP`, juga reefer): badan kuning, bendera merah-putih
+  berhuruf S hitam + "SAMUDERA" serif hitam (`samudera-flag`), digambar di kode
+  karena penghapus latar putih ikut menghapus garis putih bendera di berkasnya.
+- **Triton** (lessor, `TRITON_GP`): badan cokelat karat, "TRITON" putih slab
+  serif bersusun tegak dekat ujung kiri — digambar di kode (`triton-vertical`),
+  tanpa berkas logo. Prefix TCKU, TCNU, TTNU (jenis GP). TTNU dulu dinonaktifkan
+  karena salah dipetakan ke Tanto. `node scripts/seed-livery-codes.mjs TRITON_GP`
+  menambahkan Triton saja ke master tanpa menimpa livery lain.
+- **Open top** (kode ISO berkelompok U — 22U1, 42U1, … — atau jenis OT,
+  `isOpenTop`): model GP yang sama dengan livery mereknya, tapi atap bajanya
+  diganti terpal PVC biru di atas busur melintang, rok terpal menutupi rel atas
+  di keempat sisi, dan deretan mata ayam logam. Berlaku di lapangan, jendela
+  detail, dan kontainer yang sedang diangkat alat.
 - **Pewarnaan mati**: kontainer di kejauhan memakai warna badan livery-nya,
   jadi warnanya tidak berganti saat kamera mendekat.
 - **Perubahan master** terbaca setelah halaman dimuat ulang.
@@ -696,6 +741,38 @@ kosong dihapus dari tab Alat. Truk tetap muncul lewat lalu lintas gate.
 - **Siap dianimasikan**: `setPose(sudut, panjang)` menggerakkan boom dan
   boom dalam. Spreader selalu datar dan silinder angkat ikut merentang.
   `spreaderBottom()` memberi posisi alas twistlock untuk pose itu.
+- **Stack/unstack truk gate menurut data**: tiap perjalanan gate membawa
+  `KODE_ALAT` dari PRODUCTION_OPERATOR_NEW (kegiatan STACK untuk R, USTACK
+  untuk D, di antara gate in dan gate out). Kode RS…/SL…/FL…/EH…/ES…/TL…
+  dikerjakan alat bergerak; kode lain atau kosong tetap RTG blok.
+  - Alat dipilih (`pickMobileUnit` di `src/lib/rsPlan.ts`): kode yang sama
+    (RS1 = RS01, ditunggu bila sibuk) → alat sejenis yang bebas → alat bergerak
+    mana pun yang bebas. Jadi bila data menyebut RS02 atau SL01 tapi tata letak
+    hanya punya RS01, RS01 yang jalan.
+  - RS mendekati truk dari luar lajur layanan dan tumpukan dari sisi seberang
+    blok, memutari ujung blok di antaranya. Truk boleh berangkat begitu
+    kontainer diletakkan, selagi RS pulang.
+  - Belum ada model side loader/forklift: beri kode SL01 dsb. pada reach
+    stacker di editor bila ingin alat itu tampil dengan namanya.
+  - Kontainer di row dalam yang di luar jangkauan boom tetap ditaruh di
+    slotnya saat dilepas (boom sudah terentang penuh).
+
+### Blok reefer
+
+Tab **Sunting lapangan → Block**: kartu **Reefer block** membuka dialog blok
+baru seperti biasa (menulis CORE_YARD_BLOCK + YARD_ROWTIER), lalu blok itu
+ditandai `reefer` di tata letak. Blok yang sudah ada bisa dijadikan blok reefer
+lewat sakelar **Reefer block** di panel properti. Penanda ini hanya di
+YARD_LAYOUT; tabel blok TOS tidak berubah.
+
+- Rak listrik (`src/lib/reeferRack.ts`, digambar `ReeferRacks`) berdiri di sisi
+  panjang SEBERANG lajur truk, di luar tapak blok: tiang baja tiap dua bay,
+  platform kisi di tiap tingkat tier ke-2 ke atas, pagar kuning, kotak
+  stopkontak oranye per bay per tier menghadap tumpukan, tangga zig-zag dan
+  lemari panel listrik di ujung +x.
+- Rak setinggi tier blok dan ikut berubah saat ukuran blok disunting.
+- Sisi rak sama dengan sisi yang didekati RS untuk truk gate; RS tetap jalan
+  (tidak ada uji tabrakan dengan rak).
 
 ### Parkir alat
 
@@ -771,8 +848,29 @@ jenis `parking`). Tiga preset: RS 4 lajur, RS 2 baris berhadapan, truk 6 lajur.
 - Drag = orbit, scroll = zoom, klik kanan drag = geser
 - Klik kontainer untuk melihat detailnya
 - Ketik nomor kontainer di kotak pencarian, tekan Enter — kamera terbang ke sana
-- Panel kiri: mode pewarnaan, filter shipping line / status / ukuran, kepadatan
-  lapangan, dan opsi tampilan
+- Kiri atas: **Pantau | Sunting** (membuka editor). Tengah atas: pil angka
+  Kontainer · TEU · Okupansi · Tampil. Kanan atas, satu kartu: kotak cari
+  (Enter), chip kinerja (rincian GPU di tooltip), **Ctrl K**, tombol bulan
+  (Malam), dan menu **⋯** (muat ulang data, kiosk, mode tur, denah 2D, ikuti
+  jam, pintasan).
+- **Ctrl K — palet perintah**: semua menu dok, mode pewarnaan, saklar tampilan,
+  lalu lintas (putar ulang, Jalankan RS, ikuti alat), dan nomor kontainer
+  (ketik ≥ 2 huruf, Enter = terbang & tandai). **?** = daftar pintasan.
+- **Dok menu di tengah bawah** (kaca): Warna · Filter · Gate · Tampilan ·
+  Indikator. Menekan menu membuka panelnya di kiri (animasi muncul dari arah
+  dok, ±380 ms; tutup ±220 ms); menekan lagi, ✕, atau **Esc** menutup. Pintasan
+  **1–5**. Titik di tombol: filter aktif (biru), lalu lintas / alat berjalan
+  (hijau berdenyut), malam / cuaca / tur menyala.
+- Saat panel kiri terbuka, gambar kamera digeser setengah lebar panel
+  (`camera.setViewOffset`, `three/PanelViewOffset.tsx`) supaya lapangan tidak
+  tertutup — orbit, klik, dan "ikuti alat" tidak berubah.
+- Kaca HUD memakai blur 14 px dan otomatis jadi latar padat (tanpa blur) saat
+  kualitas adaptif menurunkan resolusi di bawah 1, saat render jatuh ke
+  perangkat lunak, atau bila sistem meminta transparansi dikurangi
+  (`lib/dock.ts` `glassSolid`). Di editor dok disembunyikan.
+- Kolom kanan: Indikator menggulir sendiri, peta mini selalu terlihat di
+  dasarnya. Peringatan cacat data (kontainer bertindihan, nomor ganda) tampil
+  di Indikator bila ada.
 
 ## Aliran langsung: gate in → ditangani → gate out
 

@@ -12,11 +12,14 @@ import { MIN_LEN, roadLen } from '@/lib/roadSnap';
 import { planGrowth } from '@/lib/shift';
 import { blockedCount } from '@/lib/slots';
 import { resizeBlockInDb } from '@/lib/yardApi';
-import { useEditor } from '@/store/useEditor';
+import { NOTE_WARN, useEditor } from '@/store/useEditor';
 import { useYard } from '@/store/useYard';
 import { useYardView } from '@/store/useYardView';
 import { Chip, Panel, Section } from './ui';
 import { ValidationPanel } from './ValidationPanel';
+
+/** Papan nama parkir bawaan (baru dan lama) yang ikut berganti saat jenis alat diganti. */
+const DEFAULT_SIGNS = new Set(['RS PARKING', 'TRUCK PARKING', 'PARKIR RS', 'PARKIR TRUK']);
 
 /** Kotak angka kecil dengan label, dipakai panel properti. */
 function Num({
@@ -68,8 +71,8 @@ function Side({
         onChange={(e) => onChange(e.target.value as BlockSide)}
         className="w-[74px] rounded border border-white/10 bg-black/30 px-1 py-0.5 text-[11px] text-slate-100 outline-none focus:border-sky-400/60"
       >
-        <option value="L">Kiri</option>
-        <option value="R">Kanan</option>
+        <option value="L">Left</option>
+        <option value="R">Right</option>
       </select>
     </label>
   );
@@ -81,7 +84,7 @@ function BlockProps({ block }: { block: LayoutBlock }) {
   return (
     <>
       <label className="flex items-center justify-between gap-2 py-[2px] text-[11px] text-slate-400">
-        <span>Kode</span>
+        <span>Block code</span>
         <input
           value={block.id}
           onChange={(e) => update(id, { id: e.target.value.toUpperCase().slice(0, 5) })}
@@ -93,7 +96,7 @@ function BlockProps({ block }: { block: LayoutBlock }) {
           berikutnya yang dipicu rotasi, sehingga blok pindah di database tanpa
           ada yang sengaja memindahkannya. */}
       <Num
-        label="Posisi X"
+        label="Position X"
         value={block.originX}
         step={0.5}
         onChange={(v) => {
@@ -102,7 +105,7 @@ function BlockProps({ block }: { block: LayoutBlock }) {
         }}
       />
       <Num
-        label="Posisi Z"
+        label="Position Z"
         value={block.originZ}
         step={0.5}
         onChange={(v) => {
@@ -114,7 +117,7 @@ function BlockProps({ block }: { block: LayoutBlock }) {
       <Num label="Row" value={block.rows} min={1} onChange={(v) => update(id, { rows: Math.max(1, Math.round(v)) })} />
       <Num label="Tier" value={block.tiers} min={1} onChange={(v) => update(id, { tiers: Math.max(1, Math.round(v)) })} />
       <Num
-        label="Putar (°)"
+        label="Rotation (°)"
         value={((block.rot ?? 0) * 180) / Math.PI}
         step={15}
         onChange={(v) => {
@@ -124,7 +127,7 @@ function BlockProps({ block }: { block: LayoutBlock }) {
       />
       {/* Kedua kolom ini tersimpan ke database seperti posisi dan sudut. */}
       <Side
-        label="Lajur truk"
+        label="Truck lane"
         value={block.truckLane ?? 'L'}
         onChange={(v) => {
           update(id, { truckLane: v });
@@ -132,7 +135,7 @@ function BlockProps({ block }: { block: LayoutBlock }) {
         }}
       />
       <Side
-        label="Mulai slot"
+        label="Slot start"
         value={block.slotStart ?? 'L'}
         onChange={(v) => {
           update(id, { slotStart: v });
@@ -140,14 +143,28 @@ function BlockProps({ block }: { block: LayoutBlock }) {
         }}
       />
       <BlockRoad block={block} />
+      {/* Blok khusus reefer: rak listrik di sisi seberang lajur truk. Hanya
+          tata letak (YARD_LAYOUT); CORE_YARD_BLOCK tidak berubah. */}
+      <label className="mt-1 flex cursor-pointer items-center justify-between gap-2 py-[2px] text-[11px] text-slate-400">
+        <span>
+          Reefer block
+          <span className="block text-[10px] text-slate-500">Power racks with platforms on the far side</span>
+        </span>
+        <input
+          type="checkbox"
+          checked={block.reefer === true}
+          onChange={(e) => update(id, { reefer: e.target.checked })}
+          className="h-3.5 w-3.5 accent-sky-400"
+        />
+      </label>
       <div className="mt-1 text-[10px] text-slate-500">
         {(block.slots * PITCH.teu).toFixed(1)} x {(block.rows * PITCH.row).toFixed(1)} m ·{' '}
-        {block.slots * block.rows * block.tiers} slot
+        {block.slots * block.rows * block.tiers} slots
       </div>
       <BlockSizeActions block={block} />
       <div className="mt-1 text-[10px] leading-relaxed text-slate-500">
-        Seret blok ini di lapangan untuk memindahkannya, atau tekan R untuk memutar 15°
-        (Shift+R sebaliknya). Posisi dan sudut tersimpan ke CORE_YARD_BLOCK.
+        Drag this block in the yard to move it, or press R to rotate it 15°
+        (Shift+R the other way). Position and angle are saved to CORE_YARD_BLOCK.
       </div>
     </>
   );
@@ -166,24 +183,24 @@ function BlockRoad({ block }: { block: LayoutBlock }) {
   return (
     <div className="mt-1.5 rounded border border-white/10 px-2 py-1.5 text-[11px] text-slate-300">
       <div className="flex items-center justify-between">
-        <span>Jalan bawaan blok</span>
-        <span className={own ? 'text-sky-300' : 'text-slate-500'}>{own ? 'ada' : 'tidak — ubin terpisah'}</span>
+        <span>Built-in block road</span>
+        <span className={own ? 'text-sky-300' : 'text-slate-500'}>{own ? 'yes' : 'no — separate tiles'}</span>
       </div>
       {own ? (
         <button
           type="button"
           onClick={() => {
             const n = detach(block.id);
-            setNote(`Jalan blok ${block.id} diganti ${n} ubin jalan yang berdiri sendiri.`);
+            setNote(`Block ${block.id} road replaced with ${n} standalone road tiles.`);
           }}
           className="mt-1 w-full rounded border border-white/15 py-1 text-[11px] text-slate-200 hover:border-white/30"
         >
-          Ganti dengan ubin jalan
+          Replace with road tiles
         </button>
       ) : (
         <div className="mt-0.5 text-[10px] leading-relaxed text-slate-500">
-          Taruh ubin jalan (atau pakai Sambung jalan) di sepanjang lorong supaya truk bisa
-          berhenti di bay blok ini.
+          Place road tiles (or use Connect road) along the aisle so trucks can
+          stop at the bays of this block.
         </div>
       )}
     </div>
@@ -229,7 +246,7 @@ function BlockSizeActions({ block }: { block: LayoutBlock }) {
     fillers: plans.reduce((n, p) => n + p.fillers.length, 0),
   };
   const anyShift = touched.roads + touched.equipment + touched.blocks > 0;
-  const deltaText = plans.map((p) => `${p.delta.toFixed(1)} m ke ${p.axis === 'x' ? 'ujung slot' : 'sisi row'}`).join(', ');
+  const deltaText = plans.map((p) => `${p.delta.toFixed(1)} m toward ${p.axis === 'x' ? 'the slot end' : 'the row side'}`).join(', ');
   const capDelta = block.slots * block.rows * block.tiers - base.slots * base.rows * base.tiers;
 
   const doShift = () => {
@@ -238,8 +255,8 @@ function BlockSizeActions({ block }: { block: LayoutBlock }) {
     for (const id of moved) persistBlockPlacement(id);
     const fillers = done.reduce((n, p) => n + p.fillers.length, 0);
     setNote(
-      `Digeser: ${new Set(done.flatMap((p) => p.roads)).size} jalan, ${new Set(done.flatMap((p) => p.equipment)).size} alat, ` +
-        `${moved.size} blok${fillers ? `; ${fillers} ubin penyambung ditambahkan` : ''}.`,
+      `Moved: ${new Set(done.flatMap((p) => p.roads)).size} roads, ${new Set(done.flatMap((p) => p.equipment)).size} equipment, ` +
+        `${moved.size} blocks${fillers ? `; ${fillers} filler tiles added` : ''}.`,
     );
   };
 
@@ -249,8 +266,8 @@ function BlockSizeActions({ block }: { block: LayoutBlock }) {
       const r = await resizeBlockInDb({ code: block.id, slots: block.slots, rows: block.rows, tiers: block.tiers });
       await load({ source: 'depot' });
       setNote(
-        `Blok ${r.code} ${r.from.slots}×${r.from.rows}×${r.from.tiers} → ${r.to.slots}×${r.to.rows}×${r.to.tiers}: ` +
-          `${r.inserted} baris YARD_ROWTIER ditambah, ${r.deleted} dihapus.`,
+        `Block ${r.code} ${r.from.slots}×${r.from.rows}×${r.from.tiers} → ${r.to.slots}×${r.to.rows}×${r.to.tiers}: ` +
+          `${r.inserted} YARD_ROWTIER rows added, ${r.deleted} deleted.`,
       );
     } catch (e) {
       setNote(e instanceof Error ? e.message : String(e));
@@ -269,9 +286,9 @@ function BlockSizeActions({ block }: { block: LayoutBlock }) {
           className="w-full rounded-md border border-amber-300/50 bg-amber-400/10 px-2 py-1 text-left text-[11px] leading-snug text-amber-100 disabled:opacity-50"
         >
           {anyShift
-            ? `Geser yang terdampak (${deltaText}): ${touched.roads} jalan · ${touched.equipment} alat · ${touched.blocks} blok` +
-              (touched.fillers ? ` · +${touched.fillers} ubin penyambung` : '')
-            : `Tidak ada yang terdampak di sisi pertumbuhan (${deltaText}).`}
+            ? `Move affected objects (${deltaText}): ${touched.roads} roads · ${touched.equipment} equipment · ${touched.blocks} blocks` +
+              (touched.fillers ? ` · +${touched.fillers} filler tiles` : '')
+            : `Nothing affected on the growth side (${deltaText}).`}
         </button>
       )}
       {source === 'depot' ? (
@@ -281,14 +298,14 @@ function BlockSizeActions({ block }: { block: LayoutBlock }) {
           onClick={doResize}
           className="w-full rounded-md border border-sky-300/50 bg-sky-400/15 px-2 py-1 text-left text-[11px] leading-snug text-slate-50 disabled:opacity-50"
         >
-          Simpan ukuran ke database ({base.slots}×{base.rows}×{base.tiers} → {block.slots}×{block.rows}×{block.tiers},{' '}
+          Save size to database ({base.slots}×{base.rows}×{base.tiers} → {block.slots}×{block.rows}×{block.tiers},{' '}
           {capDelta >= 0 ? '+' : ''}
-          {capDelta} slot)
+          {capDelta} slots)
         </button>
       ) : null}
       <div className="text-[10px] leading-relaxed text-slate-500">
-        Mengecilkan ditolak kalau ada kontainer di luar ukuran baru; baris berisi tidak pernah dihapus.
-        Blok lain yang ikut digeser posisinya tersimpan ke CORE_YARD_BLOCK.
+        Shrinking is rejected if any container lies outside the new size; occupied rows are never deleted.
+        Positions of other blocks moved along with it are saved to CORE_YARD_BLOCK.
       </div>
     </div>
   );
@@ -299,10 +316,10 @@ function RoadProps({ road }: { road: LayoutRoad }) {
   const { id } = road;
   return (
     <>
-      <Num label="Posisi X" value={road.x} step={0.5} onChange={(v) => update(id, { x: v })} />
-      <Num label="Posisi Z" value={road.z} step={0.5} onChange={(v) => update(id, { z: v })} />
+      <Num label="Position X" value={road.x} step={0.5} onChange={(v) => update(id, { x: v })} />
+      <Num label="Position Z" value={road.z} step={0.5} onChange={(v) => update(id, { z: v })} />
       <label className="flex items-center justify-between gap-2 py-[2px] text-[11px] text-slate-400">
-        <span>Bentuk</span>
+        <span>Shape</span>
         <select
           value={road.kind}
           onChange={(e) => update(id, { kind: e.target.value as RoadKind })}
@@ -317,7 +334,7 @@ function RoadProps({ road }: { road: LayoutRoad }) {
       </label>
       {/* Kelipatan 90 derajat: sudut lain memutus sambungan marka antar-ubin. */}
       <Num
-        label="Putar (°)"
+        label="Rotation (°)"
         value={(road.ry * 180) / Math.PI}
         step={90}
         onChange={(v) => update(id, { ry: (Math.round(v / 90) * 90 * Math.PI) / 180 })}
@@ -328,7 +345,7 @@ function RoadProps({ road }: { road: LayoutRoad }) {
           tidak tertangkap, misalnya celah yang lebih panjang dari satu ubin. */}
       {road.kind === 'straight' && (
         <Num
-          label="Panjang (m)"
+          label="Length (m)"
           value={roadLen(road)}
           step={0.5}
           min={MIN_LEN}
@@ -341,8 +358,8 @@ function RoadProps({ road }: { road: LayoutRoad }) {
         />
       )}
       <div className="mt-1 text-[10px] leading-relaxed text-slate-500">
-        Ubin {ROAD.tile} x {ROAD.tile} m; jalan lurus memendek sendiri kalau ruang di depannya
-        kurang dari satu ubin. Taruh berderet untuk membentuk jalur; tekan R untuk memutar 90°.
+        Tile {ROAD.tile} x {ROAD.tile} m; a straight road shortens itself when the space ahead
+        is less than one tile. Place them in a row to form a route; press R to rotate 90°.
       </div>
     </>
   );
@@ -355,10 +372,10 @@ function EquipProps({ item }: { item: LayoutEquipment }) {
   return (
     <>
       <div className="pb-1 text-[11px] text-slate-300">{EQUIPMENT_LABEL[item.kind]}</div>
-      <Num label="Posisi X" value={item.x} step={0.5} onChange={(v) => update(id, { x: v })} />
-      <Num label="Posisi Z" value={item.z} step={0.5} onChange={(v) => update(id, { z: v })} />
+      <Num label="Position X" value={item.x} step={0.5} onChange={(v) => update(id, { x: v })} />
+      <Num label="Position Z" value={item.z} step={0.5} onChange={(v) => update(id, { z: v })} />
       <Num
-        label="Putar (°)"
+        label="Rotation (°)"
         value={(item.ry * 180) / Math.PI}
         step={15}
         onChange={(v) => update(id, { ry: (v * Math.PI) / 180 })}
@@ -371,12 +388,12 @@ function EquipProps({ item }: { item: LayoutEquipment }) {
             onChange={(e) => update(id, { loaded: e.target.checked })}
             className="h-3.5 w-3.5 accent-sky-400"
           />
-          Membawa kontainer
+          Carrying a container
         </label>
       )}
       {hasEquipmentCode(item.kind) && (
         <label className="flex items-center justify-between gap-2 pt-1.5 text-[11px] text-slate-400">
-          <span>Kode alat (label)</span>
+          <span>Equipment code (label)</span>
           <input
             type="text"
             value={item.code ?? ''}
@@ -411,40 +428,40 @@ function ParkingFields({ item, onChange }: { item: LayoutEquipment; onChange: (p
     onChange({
       vehicle: v,
       // Papan nama bawaan ikut berganti; yang sudah diubah pengguna dibiarkan.
-      ...(s.label === 'PARKIR RS' || s.label === 'PARKIR TRUK' ? { label: v === 'truck' ? 'PARKIR TRUK' : 'PARKIR RS' } : {}),
+      ...(DEFAULT_SIGNS.has(s.label) ? { label: v === 'truck' ? 'TRUCK PARKING' : 'RS PARKING' } : {}),
     });
   const v = PARKING_VEHICLE[s.vehicle];
   return (
     <div className="mt-2 border-t border-white/10 pt-2">
       <div className="flex items-center justify-between gap-2 py-1 text-[11px] text-slate-400">
-        <span>Lajur untuk</span>
+        <span>Bays for</span>
         <span className="flex gap-1">
           {(Object.keys(PARKING_VEHICLE) as ParkingVehicle[]).map((k) => (
             <button key={k} type="button" className={btn(s.vehicle === k)} onClick={() => setVehicle(k)}>
-              {k === 'truck' ? 'Truk' : 'RS'}
+              {k === 'truck' ? 'Truck' : 'RS'}
             </button>
           ))}
         </span>
       </div>
       <Num
-        label="Lajur per baris"
+        label="Bays per row"
         value={s.bays}
         step={1}
         min={PARKING_LIMITS.bays[0]}
         onChange={(n) => onChange({ bays: Math.round(Math.min(PARKING_LIMITS.bays[1], Math.max(PARKING_LIMITS.bays[0], n))) })}
       />
       <div className="flex items-center justify-between gap-2 py-1 text-[11px] text-slate-400">
-        <span>Baris</span>
+        <span>Rows</span>
         <span className="flex gap-1">
           {([1, 2] as const).map((r) => (
             <button key={r} type="button" className={btn(s.rows === r)} onClick={() => onChange({ rows: r })}>
-              {r === 1 ? '1 baris' : '2 berhadapan'}
+              {r === 1 ? '1 row' : '2 facing'}
             </button>
           ))}
         </span>
       </div>
       <label className="flex items-center justify-between gap-2 pt-1.5 text-[11px] text-slate-400">
-        <span>Papan nama</span>
+        <span>Sign</span>
         <input
           type="text"
           value={s.label}
@@ -454,8 +471,8 @@ function ParkingFields({ item, onChange }: { item: LayoutEquipment; onChange: (p
         />
       </label>
       <div className="mt-1.5 text-[10px] leading-relaxed text-slate-500">
-        {s.bays * s.rows} lajur · {v.bayW} × {v.bayL} m per lajur. Alatnya ditaruh sendiri dari tab Alat
-        (mis. Reach stacker) lalu digeser ke lajur.
+        {s.bays * s.rows} bays · {v.bayW} × {v.bayL} m per bay. Place the equipment separately from the Equipment tab
+        (e.g. Reach stacker), then move it into a bay.
       </div>
     </div>
   );
@@ -466,19 +483,19 @@ function WarehouseFields({ item, onChange }: { item: LayoutEquipment; onChange: 
   const s = warehouseSpec(item.building);
   const clamp = (v: number, [lo, hi]: readonly [number, number]) => Math.min(hi, Math.max(lo, v));
   const roofs: [WarehouseRoof, string][] = [
-    ['gable', 'Pelana'],
-    ['flat', 'Datar'],
-    ['saw', 'Gergaji'],
+    ['gable', 'Gable'],
+    ['flat', 'Flat'],
+    ['saw', 'Sawtooth'],
   ];
   const btn = (on: boolean) =>
     `rounded border px-1.5 py-0.5 text-[11px] ${on ? 'border-amber-300/70 bg-amber-400/20 text-slate-50' : 'border-white/15 text-slate-300 hover:border-white/30'}`;
   return (
     <div className="mt-2 border-t border-white/10 pt-2">
-      <Num label="Panjang (m)" value={s.w} step={6} min={WAREHOUSE_LIMITS.w[0]} onChange={(v) => onChange({ w: clamp(v, WAREHOUSE_LIMITS.w) })} />
-      <Num label="Lebar (m)" value={s.d} step={3} min={WAREHOUSE_LIMITS.d[0]} onChange={(v) => onChange({ d: clamp(v, WAREHOUSE_LIMITS.d) })} />
-      <Num label="Tinggi dinding (m)" value={s.h} step={1} min={WAREHOUSE_LIMITS.h[0]} onChange={(v) => onChange({ h: clamp(v, WAREHOUSE_LIMITS.h) })} />
+      <Num label="Length (m)" value={s.w} step={6} min={WAREHOUSE_LIMITS.w[0]} onChange={(v) => onChange({ w: clamp(v, WAREHOUSE_LIMITS.w) })} />
+      <Num label="Width (m)" value={s.d} step={3} min={WAREHOUSE_LIMITS.d[0]} onChange={(v) => onChange({ d: clamp(v, WAREHOUSE_LIMITS.d) })} />
+      <Num label="Wall height (m)" value={s.h} step={1} min={WAREHOUSE_LIMITS.h[0]} onChange={(v) => onChange({ h: clamp(v, WAREHOUSE_LIMITS.h) })} />
       <div className="flex items-center justify-between gap-2 py-1 text-[11px] text-slate-400">
-        <span>Atap</span>
+        <span>Roof</span>
         <span className="flex gap-1">
           {roofs.map(([v, name]) => (
             <button key={v} type="button" className={btn(s.roof === v)} onClick={() => onChange({ roof: v })}>
@@ -487,7 +504,7 @@ function WarehouseFields({ item, onChange }: { item: LayoutEquipment; onChange: 
           ))}
         </span>
       </div>
-      <div className="py-1 text-[11px] text-slate-400">Warna dinding / atap</div>
+      <div className="py-1 text-[11px] text-slate-400">Wall / roof color</div>
       <div className="flex flex-wrap gap-1">
         {WAREHOUSE_PAINTS.map((p) => (
           <button
@@ -504,9 +521,9 @@ function WarehouseFields({ item, onChange }: { item: LayoutEquipment; onChange: 
       </div>
       {(
         [
-          ['docks', 'Pintu gulung + dock'],
-          ['canopy', 'Kanopi di atas dock'],
-          ['office', 'Kantor di ujung'],
+          ['docks', 'Roller doors + dock'],
+          ['canopy', 'Canopy over dock'],
+          ['office', 'Office at the end'],
         ] as const
       ).map(([k, name]) => (
         <label key={k} className="flex cursor-pointer items-center gap-2 pt-1 text-[11px] text-slate-300">
@@ -521,7 +538,7 @@ function WarehouseFields({ item, onChange }: { item: LayoutEquipment; onChange: 
         </label>
       ))}
       <label className="flex items-center justify-between gap-2 pt-1.5 text-[11px] text-slate-400">
-        <span>Papan nama</span>
+        <span>Sign</span>
         <input
           type="text"
           value={s.label}
@@ -555,7 +572,7 @@ function LockedSlots() {
   const active = tool === 'slots';
 
   return (
-    <Section title="Slot terkunci">
+    <Section title="Locked slots">
       <button
         type="button"
         onClick={() => setTool(active ? 'select' : 'slots')}
@@ -565,7 +582,7 @@ function LockedSlots() {
             : 'border-white/15 text-slate-200 hover:border-white/30'
         }`}
       >
-        {active ? (busy ? 'Menyimpan ke YARD_ROWTIER…' : 'Selesai mengunci slot') : 'Kunci / buka slot…'}
+        {active ? (busy ? 'Saving to YARD_ROWTIER…' : 'Done locking slots') : 'Lock / unlock slots…'}
       </button>
       {/* Hasil tiap klik ditampilkan DI SINI, dekat tombolnya — bukan hanya di
           bagian bawah panel yang bisa berada di luar layar. Penolakan server
@@ -574,7 +591,7 @@ function LockedSlots() {
       {active && note && (
         <div
           className={`mt-1.5 text-[10px] leading-relaxed ${
-            /tidak bisa|gagal|ditolak|dimatikan/i.test(note) ? 'text-amber-300' : 'text-sky-300/90'
+            NOTE_WARN.test(note) ? 'text-amber-300' : 'text-sky-300/90'
           }`}
         >
           {note}
@@ -582,22 +599,22 @@ function LockedSlots() {
       )}
       <div className="mt-1.5 text-[10px] leading-relaxed text-slate-500">
         {total === 0
-          ? 'Belum ada slot yang dikunci. Slot terkunci tidak dihitung sebagai kapasitas.'
-          : `${total} slot terkunci. Tidak dihitung sebagai kapasitas.`}
+          ? 'No slots locked yet. Locked slots do not count toward capacity.'
+          : `${total} slots locked. Not counted toward capacity.`}
       </div>
       {rows.length > 0 && (
         <div className="mt-1.5 space-y-0.5">
           {rows.map((r) => (
             <div key={r.id} className="flex items-center justify-between text-[11px] text-slate-300">
               <span>
-                <span className="font-semibold text-slate-100">{r.id}</span> · {r.cells} slot ({r.cols} kolom)
+                <span className="font-semibold text-slate-100">{r.id}</span> · {r.cells} slots ({r.cols} columns)
               </span>
               <button
                 type="button"
                 onClick={() => clearBlocked(r.id)}
                 className="text-[10px] text-slate-500 hover:text-red-300"
               >
-                buka semua
+                unlock all
               </button>
             </div>
           ))}
@@ -639,19 +656,8 @@ export function EditorPanel() {
   // disalin.
   const ready = !!data && data.meta.source === source;
 
-  if (!open) {
-    return (
-      <Panel className="pointer-events-auto">
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="px-3 py-2 text-[12px] font-medium text-slate-200 hover:text-white"
-        >
-          ✏️ Sunting lapangan
-        </button>
-      </Panel>
-    );
-  }
+  // Editor dibuka dari pilihan mode "Sunting" di kartu kiri atas (TopBar).
+  if (!open) return null;
 
   const block = selected?.type === 'block' ? layout?.blocks.find((b) => b.id === selected.id) : null;
   const road = selected?.type === 'road' ? layout?.roads.find((r) => r.id === selected.id) : null;
@@ -673,24 +679,24 @@ export function EditorPanel() {
     // jadi roda tetikus tidak sampai ke sana, dan bagian bawah panel — tempat
     // catatan hasil tulis dulu muncul — tidak pernah bisa dicapai di layar
     // pendek.
-    <Panel className="hud-scroll pointer-events-auto max-h-[72vh] min-h-0 w-[248px] overflow-y-auto overscroll-contain">
+    <Panel className="hud-scroll pointer-events-auto min-h-0 w-[300px] shrink overflow-y-auto overscroll-contain">
       <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
-        <span className="text-[12px] font-semibold text-slate-100">Sunting lapangan</span>
+        <span className="text-[12px] font-semibold text-slate-100">Edit yard</span>
         <button
           type="button"
           onClick={() => setOpen(false)}
           className="text-slate-500 hover:text-slate-200"
-          aria-label="Tutup"
+          aria-label="Close"
         >
           ✕
         </button>
       </div>
 
       {!layout ? (
-        <Section title="Mulai">
+        <Section title="Start">
           <div className="mb-2 text-[11px] leading-relaxed text-slate-400">
-            Belum ada tata letak tersimpan. Salin susunan yang sedang tampil sebagai titik awal,
-            lalu sunting sesukanya.
+            No saved layout yet. Copy the arrangement currently shown as a starting point,
+            then edit it freely.
           </div>
           {/*
             Tombolnya mati selama lapangan sumber yang dipilih belum sampai.
@@ -704,25 +710,25 @@ export function EditorPanel() {
             onClick={() => ready && data && seedFrom(data)}
             className="w-full rounded-md border border-sky-300/50 bg-sky-400/15 py-1.5 text-[12px] text-slate-50 disabled:opacity-40"
           >
-            Salin dari lapangan sekarang
+            Copy from current yard
           </button>
           {!ready && (
             <div className="mt-1.5 text-[10px] text-slate-500">
-              Menunggu lapangan database selesai dimuat…
+              Waiting for the database yard to finish loading…
             </div>
           )}
         </Section>
       ) : (
         <>
-          <Section title={selected ? 'Properti' : 'Belum ada yang dipilih'}>
+          <Section title={selected ? 'Properties' : 'Nothing selected'}>
             {block && <BlockProps block={block} />}
             {road && <RoadProps road={road} />}
             {equip && <EquipProps item={equip} />}
             {!selected && (
               <div className="text-[11px] leading-relaxed text-slate-500">
                 {tool === 'place'
-                  ? 'Klik di lapangan untuk menaruh aset yang dipilih di palet bawah.'
-                  : 'Klik blok, jalan, atau alat di lapangan untuk menyuntingnya.'}
+                  ? 'Click in the yard to place the asset selected in the bottom palette.'
+                  : 'Click a block, road, or equipment in the yard to edit it.'}
               </div>
             )}
             {selected && (
@@ -731,7 +737,7 @@ export function EditorPanel() {
                 onClick={removeSelected}
                 className="mt-2 w-full rounded-md border border-red-400/40 py-1 text-[11px] text-red-300 hover:border-red-400/70"
               >
-                Hapus objek ini
+                Delete this object
               </button>
             )}
           </Section>
@@ -743,45 +749,45 @@ export function EditorPanel() {
               kartunya mudah tertukar dengan kartu jalan dan alat yang
               perilakunya berbeda — yang itu ditempel di lapangan, yang ini
               menulis ke database. */}
-          <Section title="Blok">
+          <Section title="Block">
             <button
               type="button"
               onClick={() => openNewBlock({ slots: 20, rows: 6, tiers: 7 })}
               className="w-full rounded-md border border-sky-300/50 bg-sky-400/15 py-1.5 text-[12px] text-slate-50 hover:bg-sky-400/25"
             >
-              + Blok baru
+              + New block
             </button>
             <div className="mt-1 text-[10px] leading-relaxed text-slate-500">
-              Menyisipkan baris ke CORE_YARD_BLOCK dan YARD_ROWTIER. Ukuran diatur di dialognya.
+              Inserts rows into CORE_YARD_BLOCK and YARD_ROWTIER. Size is set in the dialog.
             </div>
           </Section>
 
-          <Section title="Tata letak">
+          <Section title="Layout">
             <div className="mb-1.5 text-[10px] text-slate-500">
-              {layout.blocks.length} blok · {layout.roads.length} jalan · {layout.equipment.length} alat
+              {layout.blocks.length} blocks · {layout.roads.length} roads · {layout.equipment.length} equipment
               {typeof data?.meta.droppedByLayout === 'number' && data.meta.droppedByLayout > 0 && (
                 <span className="block text-amber-400/80">
-                  {data.meta.droppedByLayout} kontainer tidak muat di blok hasil suntingan dan tidak
-                  digambar
+                  {data.meta.droppedByLayout} containers do not fit in the edited blocks and are not
+                  drawn
                 </span>
               )}
             </div>
             <div className="grid grid-cols-2 gap-1">
-              <Chip active={false} onClick={undo} title={canUndo ? 'Ctrl+Z' : 'Tidak ada riwayat'}>
-                Batalkan
+              <Chip active={false} onClick={undo} title={canUndo ? 'Ctrl+Z' : 'No history'}>
+                Undo
               </Chip>
               <Chip active={false} onClick={exportJson}>
-                Ekspor JSON
+                Export JSON
               </Chip>
               <Chip active={false} onClick={() => fileRef.current?.click()}>
-                Impor JSON
+                Import JSON
               </Chip>
               <Chip
                 active={false}
                 onClick={() => {
                   clearLayout();
                   setTool('select');
-                  setNote('Tata letak dihapus — kembali ke susunan database.');
+                  setNote('Layout cleared — back to the database arrangement.');
                 }}
               >
                 Reset
@@ -796,7 +802,7 @@ export function EditorPanel() {
                 const f = e.target.files?.[0];
                 e.target.value = '';
                 if (!f) return;
-                setNote(importLayout(await f.text()) ?? 'Tata letak dimuat.');
+                setNote(importLayout(await f.text()) ?? 'Layout loaded.');
               }}
             />
             {note && <div className="mt-1.5 text-[10px] text-slate-400">{note}</div>}
@@ -805,8 +811,8 @@ export function EditorPanel() {
               <div className="mt-1.5 text-[10px] leading-relaxed text-sky-300/90">{dbNote}</div>
             )}
             <div className="mt-1.5 text-[10px] leading-relaxed text-slate-500">
-              Tersimpan otomatis ke database dan berlaku untuk semua pengguna: jalan dan alat ke
-              YARD_LAYOUT, posisi serta sudut blok ke CORE_YARD_BLOCK.
+              Saved automatically to the database and applies to all users: roads and equipment to
+              YARD_LAYOUT, block positions and angles to CORE_YARD_BLOCK.
             </div>
           </Section>
         </>

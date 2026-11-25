@@ -50,14 +50,14 @@ export function ValidationPanel() {
 
   const errors = issues.filter((i) => i.level === 'error').length;
   return (
-    <Section title={`Pemeriksaan${issues.length ? ` · ${issues.length}` : ''}`}>
+    <Section title={`Checks${issues.length ? ` · ${issues.length}` : ''}`}>
       {issues.length === 0 ? (
-        <div className="text-[11px] text-emerald-300/90">Tidak ada masalah: semua blok tersambung ke gate.</div>
+        <div className="text-[11px] text-emerald-300/90">No problems: every block is connected to a gate.</div>
       ) : (
         <>
           <div className="mb-1 text-[10px] text-slate-500">
-            {errors} harus dibetulkan{issues.length - errors > 0 ? ` · ${issues.length - errors} perlu dilihat` : ''}.
-            Klik untuk terbang ke lokasinya.
+            {errors} must be fixed{issues.length - errors > 0 ? ` · ${issues.length - errors} worth a look` : ''}.
+            Click to fly to the location.
           </div>
           <div className="max-h-40 space-y-0.5 overflow-y-auto pr-1">
             {issues.map((i) => (

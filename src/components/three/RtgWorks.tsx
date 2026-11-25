@@ -13,6 +13,7 @@ import {
   SPREADER_Y,
 } from '@/lib/geometry';
 import type { LayoutEquipment } from '@/lib/layout';
+import { rsUnits, wantsMobile } from '@/lib/rsPlan';
 import type { YardBlock } from '@/lib/types';
 import { containerPosition } from '@/lib/yard';
 import { useEditor } from '@/store/useEditor';
@@ -331,8 +332,12 @@ function Works() {
   useEffect(() => {
     const { claimJob } = useTraffic.getState();
     const busy = new Set(useTraffic.getState().busyRtg);
+    // Kontainer yang menurut data ditangani alat bergerak (KODE_ALAT RS/SL/FL)
+    // dikerjakan RsWorks — selama tata letak punya alat bergerak.
+    const mobile = rsUnits(useEditor.getState().layout?.equipment ?? []).length > 0;
     for (const job of Object.values(jobs)) {
       if (job.stage !== 'queued' || anims.current.has(job.id)) continue;
+      if (mobile && job.flow !== 'S' && wantsMobile(job.equipment)) continue;
       const block = data?.blocks.find((b) => b.id === job.blockId);
       if (!block) continue;
 

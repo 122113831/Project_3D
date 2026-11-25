@@ -32,6 +32,12 @@ export type LiveEvent = {
    * ke database lewat /api/yard/container saat kontainer ditangani.
    */
   position?: YardPosition | null;
+  /**
+   * Kode alat yang menangani (PRODUCTION_OPERATOR_NEW.KODE_ALAT), mis. RS01 /
+   * SL02. Alat bergerak dengan kode ini — atau sejenisnya — yang bekerja;
+   * tanpa kode, RTG blok seperti biasa.
+   */
+  equipment?: string | null;
 };
 
 /** Mengambil nilai dari objek dengan beberapa nama kunci, tanpa peduli huruf besar-kecil. */
@@ -132,6 +138,7 @@ export function normalizeEvent(raw: unknown): LiveEvent | null {
     gateNo,
     at: at ? toIso(at) : null,
     position,
+    equipment: str(pick(o, 'equipment', 'kode_alat', 'kodeAlat', 'alat')).toUpperCase() || null,
   };
 }
 

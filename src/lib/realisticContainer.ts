@@ -301,6 +301,17 @@ export function rod(r: number, h: number, x: number, y: number, z: number, axis:
  * vertex yang dipakai beberapa segitiga dihitung sekali dan GPU memakai cache
  * vertex-nya — seperti aset GLB lama.
  */
+/**
+ * sRGB 0–255 → linear, sebagai tabel. Dipanggil untuk ratusan ribu piksel
+ * logo saat halaman dibuka; `** 2.4` per piksel terukur ±470 ms CPU di sana.
+ */
+const SRGB_LIN = Float32Array.from({ length: 256 }, (_, c) => {
+  const v = c / 255;
+  return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+});
+/** Seperti SRGB_LIN, untuk nilai yang bisa pecahan (rata-rata warna). */
+const srgbLin = (c: number) => SRGB_LIN[Math.max(0, Math.min(255, Math.round(c)))];
+
 export const merge = (parts: THREE.BufferGeometry[]) => {
   const g = mergeVertices(mergeGeometries(parts, false)!);
   g.computeBoundingSphere();
@@ -547,6 +558,34 @@ export function drawSideBrand(
   }
   if (SIDE_LAYOUT[liv.code] === 'cmacgm-center') {
     drawCmaCgm(g, length, m, liv.textColor);
+    return;
+  }
+  if (SIDE_LAYOUT[liv.code] === 'wanhai-text') {
+    drawWanHai(g, length, m, liv.bodyColor);
+    return;
+  }
+  if (SIDE_LAYOUT[liv.code] === 'triton-vertical') {
+    drawTriton(g, length, m, liv.textColor);
+    return;
+  }
+  if (SIDE_LAYOUT[liv.code] === 'sitc-center') {
+    drawSitc(g, length, m, liv.textColor);
+    return;
+  }
+  if (SIDE_LAYOUT[liv.code] === 'samudera-flag') {
+    drawSamudera(g, length, m, liv.textColor);
+    return;
+  }
+  if (SIDE_LAYOUT[liv.code] === 'temas-line') {
+    drawTemas(g, length, m, liv.textColor);
+    return;
+  }
+  if (SIDE_LAYOUT[liv.code] === 'tex-vertical') {
+    drawTex(g, length, m, liv.textColor);
+    return;
+  }
+  if (SIDE_LAYOUT[liv.code] === 'kmtc-line') {
+    drawKmtc(g, length, m, liv.textColor, liv.bodyColor);
     return;
   }
   if (SIDE_LAYOUT[liv.code] === 'seaco-top') {
@@ -867,6 +906,419 @@ function drawCmaCgm(g: CanvasRenderingContext2D, length: number, m: (v: number) 
 }
 
 /**
+ * WAN HAI: "WAN HAI" miring tebal, besar di tengah dinding. Di badan navy
+ * hurufnya BERONGGA — isinya warna badan, bergaris tepi putih — kecuali kedua
+ * "A" yang merah, seperti kontainer aslinya. Di badan terang (reefer) huruf
+ * diisi navy dan garis tepinya tidak perlu.
+ */
+function drawWanHai(g: CanvasRenderingContext2D, length: number, m: (v: number) => number, body: string) {
+  const H = BOX.height;
+  const is40 = length > 9;
+  const light = isLight(body);
+  const fill = light ? '#1C2F5E' : body;
+  const red = '#E3302B';
+  let h = m(is40 ? 0.95 : 0.78);
+  const font = (px: number) => `900 ${px}px 'Arial Black', 'Segoe UI Black', Arial, sans-serif`;
+  const word = ['W', 'A', 'N', ' ', 'H', 'A', 'I'];
+  const track = () => h * 0.12;
+  const widthOf = () => {
+    g.font = font(h);
+    return word.reduce((s, ch) => s + (ch === ' ' ? h * 0.55 : g.measureText(ch).width + track()), -track());
+  };
+  // Lebar tulisan ±70% panjang dinding (seperti foto 20ft), diperkecil bila lebih.
+  const avail = m(length - 2 * 0.6) * (is40 ? 0.62 : 0.74);
+  let w = widthOf();
+  if (w > avail) {
+    h *= avail / w;
+    w = widthOf();
+  }
+  g.save();
+  g.font = font(h);
+  g.textBaseline = 'alphabetic';
+  g.lineJoin = 'round';
+  g.lineWidth = Math.max(1.5, h * 0.05);
+  g.strokeStyle = '#FFFFFF';
+  const t = g.measureText('W');
+  const base = m(H * 0.52) + (t.actualBoundingBoxAscent - t.actualBoundingBoxDescent) / 2;
+  let x = m(length * 0.5) - w / 2;
+  for (const ch of word) {
+    if (ch === ' ') {
+      x += h * 0.55;
+      continue;
+    }
+    const cw = g.measureText(ch).width;
+    g.save();
+    // Miring ±12° ke kanan, berporos di garis dasar huruf.
+    g.translate(x, base);
+    g.transform(1, 0, -0.21, 1, 0, 0);
+    g.fillStyle = ch === 'A' ? red : fill;
+    g.fillText(ch, 0, 0);
+    if (!light) g.strokeText(ch, 0, 0);
+    g.restore();
+    x += cw + track();
+  }
+  g.restore();
+}
+
+/**
+ * TRITON: huruf T-R-I-T-O-N putih bergaya slab serif, BERSUSUN TEGAK (satu
+ * huruf di bawah yang lain, tetap tegak) dekat ujung kiri dinding samping,
+ * memenuhi ±65% tinggi dinding — seperti kontainer Triton aslinya.
+ */
+function drawTriton(g: CanvasRenderingContext2D, length: number, m: (v: number) => number, color: string) {
+  const H = BOX.height;
+  const is40 = length > 9;
+  const letters = ['T', 'R', 'I', 'T', 'O', 'N'];
+  const pitch = m((H * 0.66) / letters.length);
+  const h = pitch * 0.95;
+  g.save();
+  g.fillStyle = color;
+  g.textAlign = 'center';
+  g.textBaseline = 'alphabetic';
+  g.font = `700 ${h}px Rockwell, 'Roboto Slab', 'Courier New', Georgia, serif`;
+  // Tinggi huruf kapital yang sebenarnya, supaya susunannya pas di tengah.
+  const cap = g.measureText('T').actualBoundingBoxAscent || h * 0.72;
+  const cx = m(is40 ? 1.55 : 1.2);
+  const top = m(H * 0.17) + (pitch - cap) / 2;
+  // Huruf di foto lebar dan gemuk: diregangkan mendatar 25%.
+  const wide = 1.25;
+  letters.forEach((ch, i) => {
+    g.save();
+    g.translate(cx, top + i * pitch + cap);
+    g.scale(wide, 1);
+    g.fillText(ch, 0, 0);
+    g.restore();
+  });
+  g.restore();
+}
+
+/**
+ * SITC: "SITC" putih sangat tebal, miring, lebar, dengan garis tepi biru tua
+ * yang sedikit bergeser ke kanan bawah (kesan timbul) — besar di tengah
+ * dinding, sedikit ke kiri, seperti kontainer SITC aslinya.
+ */
+function drawSitc(g: CanvasRenderingContext2D, length: number, m: (v: number) => number, color: string) {
+  const H = BOX.height;
+  const is40 = length > 9;
+  const text = 'SITC';
+  const wide = 1.3;
+  let h = m(is40 ? 1.05 : 0.9);
+  const font = (px: number) => `900 ${px}px 'Arial Black', 'Segoe UI Black', Arial, sans-serif`;
+  g.save();
+  // Garis dasar DIATUR SEBELUM mengukur: ascent/descent diukur relatif ke
+  // garis dasar yang aktif, dan konteks ini mewarisi 'middle'/'top' dari
+  // gambar sebelumnya — tanpa ini tulisan naik ke atas tengah dinding.
+  g.textBaseline = 'alphabetic';
+  g.font = font(h);
+  const avail = m(length - 2 * 0.6) * (is40 ? 0.5 : 0.66);
+  let w = g.measureText(text).width * wide;
+  if (w > avail) {
+    h *= avail / w;
+    g.font = font(h);
+    w = g.measureText(text).width * wide;
+  }
+  const t = g.measureText(text);
+  const cx = m(length * (is40 ? 0.44 : 0.5));
+  const base = m(H * 0.53) + (t.actualBoundingBoxAscent - t.actualBoundingBoxDescent) / 2;
+  g.translate(cx - w / 2, base);
+  g.transform(wide, 0, -0.22 * wide, 1, 0, 0);
+  g.textBaseline = 'alphabetic';
+  g.lineJoin = 'round';
+  // Garis tepi biru tua bergeser sedikit ke kanan bawah, lalu isian putih.
+  g.strokeStyle = '#173C8C';
+  g.lineWidth = Math.max(2, h * 0.09);
+  g.strokeText(text, h * 0.035, h * 0.035);
+  g.fillStyle = color;
+  g.fillText(text, 0, 0);
+  g.restore();
+}
+
+/**
+ * SAMUDERA: bendera persegi bergaris merah-putih (lima pita, merah di atas dan
+ * bawah) dengan huruf "S" serif hitam besar di atasnya, lalu tulisan
+ * "SAMUDERA" serif hitam di kanannya — logo Samudera Indonesia di badan kuning.
+ */
+function drawSamudera(g: CanvasRenderingContext2D, length: number, m: (v: number) => number, color: string) {
+  const H = BOX.height;
+  const is40 = length > 9;
+  let fh = m(is40 ? 0.86 : 0.6);
+  const font = (px: number) => `600 ${px}px Optima, Candara, 'Palatino Linotype', 'Book Antiqua', Georgia, serif`;
+  const word = 'SAMUDERA';
+  const layout = () => {
+    g.font = font(fh * 0.95);
+    const tw = g.measureText(word).width * 1.06;
+    const fw = fh * 1.9;
+    return { fw, tw, gap: fh * 0.35 };
+  };
+  let L0 = layout();
+  const avail = m(length - 2 * 0.6) * (is40 ? 0.72 : 0.86);
+  const total = () => L0.fw + L0.gap + L0.tw;
+  if (total() > avail) {
+    fh *= avail / total();
+    L0 = layout();
+  }
+  const { fw, tw, gap } = L0;
+  const x0 = m(length * (is40 ? 0.47 : 0.5)) - (fw + gap + tw) / 2;
+  const cy = m(H * 0.48);
+  const fy = cy - fh / 2;
+  g.save();
+  // Bendera: lima pita sama tebal, merah-putih-merah-putih-merah.
+  const band = fh / 5;
+  for (let i = 0; i < 5; i++) {
+    g.fillStyle = i % 2 === 0 ? '#D8232A' : '#FFFFFF';
+    g.fillRect(x0, fy + i * band, fw, band + 0.5);
+  }
+  g.fillStyle = color;
+  g.textBaseline = 'alphabetic';
+  g.textAlign = 'center';
+  // "S" serif tebal, sedikit lebih tinggi dari bendera, agak ke kiri tengah.
+  g.font = `700 ${fh * 1.25}px 'Times New Roman', Georgia, serif`;
+  const s = g.measureText('S');
+  g.fillText('S', x0 + fw * 0.45, cy + (s.actualBoundingBoxAscent - s.actualBoundingBoxDescent) / 2);
+  // Tulisan merek, sedikit direnggangkan.
+  g.font = font(fh * 0.95);
+  g.textAlign = 'left';
+  const t = g.measureText(word);
+  const tb = cy + (t.actualBoundingBoxAscent - t.actualBoundingBoxDescent) / 2;
+  let x = x0 + fw + gap;
+  const extra = (tw - t.width) / (word.length - 1);
+  for (const ch of word) {
+    g.fillText(ch, x, tb);
+    x += g.measureText(ch).width + extra;
+  }
+  g.restore();
+}
+
+/**
+ * Kotak putih logo KMTC: bendera biru (warna badan) berkibar dengan huruf K
+ * putih dan tiang tipis miring di kiri. (bx, by) = pojok kiri atas, bs = sisi.
+ * Dipakai di dinding samping dan di daun pintu kiri.
+ */
+function drawKmtcFlagBox(g: CanvasRenderingContext2D, bx: number, by: number, bs: number, body: string) {
+  g.save();
+  g.fillStyle = '#FFFFFF';
+  g.fillRect(bx, by, bs, bs);
+  const fx = (u: number) => bx + u * bs;
+  const fy = (v: number) => by + v * bs;
+  g.fillStyle = body;
+  g.beginPath();
+  g.moveTo(fx(0.22), fy(0.16));
+  g.bezierCurveTo(fx(0.45), fy(0.1), fx(0.62), fy(0.3), fx(0.9), fy(0.2));
+  g.lineTo(fx(0.86), fy(0.8));
+  g.bezierCurveTo(fx(0.62), fy(0.9), fx(0.48), fy(0.7), fx(0.3), fy(0.8));
+  g.closePath();
+  g.fill();
+  g.strokeStyle = body;
+  g.lineWidth = Math.max(1, bs * 0.025);
+  g.beginPath();
+  g.moveTo(fx(0.2), fy(0.1));
+  g.lineTo(fx(0.31), fy(0.95));
+  g.stroke();
+  g.fillStyle = '#FFFFFF';
+  g.font = `900 ${bs * 0.42}px 'Arial Black', 'Segoe UI Black', Arial, sans-serif`;
+  g.textAlign = 'center';
+  g.textBaseline = 'alphabetic';
+  const kk = g.measureText('K');
+  g.fillText('K', fx(0.57), fy(0.5) + (kk.actualBoundingBoxAscent - kk.actualBoundingBoxDescent) / 2);
+  g.restore();
+}
+
+/**
+ * KMTC LINE: kotak putih berisi bendera biru berkibar dengan huruf K putih dan
+ * tiang di kiri, "www.ekmtc.com" kecil di bawahnya (kiri atas dinding), lalu
+ * "KMTC" putih sangat tebal & lebar dengan "LINE" lebih kecil di kanannya,
+ * segaris dasar, di tengah badan — seperti kontainer KMTC aslinya.
+ */
+function drawKmtc(g: CanvasRenderingContext2D, length: number, m: (v: number) => number, color: string, body: string) {
+  const H = BOX.height;
+  const is40 = length > 9;
+  g.save();
+  g.textBaseline = 'alphabetic';
+  g.textAlign = 'left';
+
+  // ---- kotak logo bendera (kiri atas)
+  const bs = m(0.62);
+  const bx = m(is40 ? 1.1 : 0.62);
+  const by = m(H * 0.13);
+  drawKmtcFlagBox(g, bx, by, bs, body);
+  // Alamat web di bawah kotak.
+  g.fillStyle = color;
+  g.textAlign = 'left';
+  g.font = `600 ${m(0.11)}px Arial, sans-serif`;
+  g.fillText('www.ekmtc.com', bx - m(0.04), by + bs + m(0.16));
+
+  // ---- "KMTC" + "LINE"
+  const wide = 1.28;
+  let h = m(is40 ? 0.74 : 0.64);
+  const font = (px: number) => `900 ${px}px 'Arial Black', 'Segoe UI Black', Arial, sans-serif`;
+  const measure = () => {
+    g.font = font(h);
+    const wK = g.measureText('KMTC').width * wide;
+    g.font = font(h * 0.46);
+    const wL = g.measureText('LINE').width * wide * 1.08;
+    return { wK, wL, gap: h * 0.06 };
+  };
+  let M = measure();
+  const avail = m(length - 2 * 0.6) * (is40 ? 0.5 : 0.66);
+  if (M.wK + M.gap + M.wL > avail) {
+    h *= avail / (M.wK + M.gap + M.wL);
+    M = measure();
+  }
+  const total = M.wK + M.gap + M.wL;
+  const left = m(length * (is40 ? 0.52 : 0.5)) - total / 2;
+  const base = m(H * 0.66);
+  g.fillStyle = color;
+  g.save();
+  g.translate(left, base);
+  g.scale(wide, 1);
+  g.font = font(h);
+  g.fillText('KMTC', 0, 0);
+  g.restore();
+  // "LINE" kecil, berjarak sedikit lebih renggang, segaris dasar.
+  g.font = font(h * 0.46);
+  let x = left + M.wK + M.gap;
+  for (const ch of 'LINE') {
+    g.save();
+    g.translate(x, base);
+    g.scale(wide, 1);
+    g.fillText(ch, 0, 0);
+    g.restore();
+    x += g.measureText(ch).width * wide * 1.08;
+  }
+  g.restore();
+}
+
+/**
+ * TEXTAINER: logo "tex" huruf kecil serif, di dinding samping BERSUSUN TEGAK
+ * (t di atas, e, lalu x — tiap huruf tetap tegak) dekat ujung kiri, memenuhi
+ * ±60% tinggi dinding, seperti kontainer Textainer aslinya.
+ */
+function drawTex(g: CanvasRenderingContext2D, length: number, m: (v: number) => number, color: string) {
+  const H = BOX.height;
+  const is40 = length > 9;
+  const letters = ['t', 'e', 'x'];
+  const pitch = m((H * 0.6) / letters.length);
+  g.save();
+  g.fillStyle = color;
+  g.textAlign = 'center';
+  g.textBaseline = 'alphabetic';
+  g.font = `500 ${pitch * 1.25}px Georgia, 'Times New Roman', serif`;
+  const cx = m(is40 ? 1.75 : 1.4);
+  // Garis dasar tiap huruf: kotak huruf kecil (tinggi x) jatuh di tengah
+  // pitch-nya; "t" yang lebih tinggi menjulur ke atas, seperti logonya.
+  const xh = g.measureText('x').actualBoundingBoxAscent || pitch * 0.6;
+  const top = m(H * 0.22);
+  letters.forEach((ch, i) => g.fillText(ch, cx, top + i * pitch + (pitch + xh) / 2));
+  g.restore();
+}
+
+/**
+ * Bendera Temas berkibar: tiang emas miring di kiri, kain tiga pita (merah,
+ * putih, biru) yang bergelombang, dan lambang bundar putih bercincin emas
+ * dengan huruf E emas di tengahnya. (x, y) = pojok kiri atas, w × h = kain.
+ */
+function drawTemasFlag(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
+  // Tepi atas & bawah kain sebagai kurva Bézier kubik; pita = interpolasi.
+  const top = [
+    [x + w * 0.08, y + h * 0.04],
+    [x + w * 0.4, y - h * 0.18],
+    [x + w * 0.62, y + h * 0.32],
+    [x + w * 1.0, y + h * 0.12],
+  ];
+  const bot = [
+    [x + w * 0.24, y + h * 0.86],
+    [x + w * 0.52, y + h * 0.66],
+    [x + w * 0.72, y + h * 1.14],
+    [x + w * 1.02, y + h * 0.95],
+  ];
+  const lerp = (t: number) => top.map((p, i) => [p[0] + (bot[i][0] - p[0]) * t, p[1] + (bot[i][1] - p[1]) * t]);
+  const band = (t0: number, t1: number, color: string) => {
+    const a = lerp(t0);
+    const b = lerp(t1);
+    g.beginPath();
+    g.moveTo(a[0][0], a[0][1]);
+    g.bezierCurveTo(a[1][0], a[1][1], a[2][0], a[2][1], a[3][0], a[3][1]);
+    g.lineTo(b[3][0], b[3][1]);
+    g.bezierCurveTo(b[2][0], b[2][1], b[1][0], b[1][1], b[0][0], b[0][1]);
+    g.closePath();
+    g.fillStyle = color;
+    g.fill();
+  };
+  band(0, 0.42, '#E2262B');
+  band(0.4, 0.6, '#FFFFFF');
+  band(0.58, 1, '#24408F');
+  // Tiang emas + kenop di puncaknya.
+  g.strokeStyle = '#C99A2E';
+  g.lineCap = 'round';
+  g.lineWidth = Math.max(1.5, w * 0.045);
+  g.beginPath();
+  g.moveTo(x + w * 0.02, y - h * 0.08);
+  g.lineTo(x + w * 0.34, y + h * 1.35);
+  g.stroke();
+  g.fillStyle = '#C99A2E';
+  g.beginPath();
+  g.arc(x + w * 0.015, y - h * 0.1, w * 0.045, 0, Math.PI * 2);
+  g.fill();
+  // Lambang di tengah kain.
+  const cx = x + w * 0.55;
+  const cy = y + h * 0.5;
+  const r = h * 0.3;
+  g.fillStyle = '#FFFFFF';
+  g.beginPath();
+  g.arc(cx, cy, r, 0, Math.PI * 2);
+  g.fill();
+  g.lineWidth = Math.max(1, r * 0.2);
+  g.stroke();
+  g.fillStyle = '#C99A2E';
+  g.textAlign = 'center';
+  g.textBaseline = 'alphabetic';
+  g.font = `700 ${r * 1.35}px Georgia, 'Times New Roman', serif`;
+  const e = g.measureText('E');
+  g.fillText('E', cx, cy + (e.actualBoundingBoxAscent - e.actualBoundingBoxDescent) / 2);
+}
+
+/**
+ * TEMAS LINE: "TEMAS" putih tebal miring + "LINE" lebih kecil di tengah
+ * dinding, bendera berkibar di atasnya (sedikit ke kanan dari awal tulisan),
+ * dan "www.temasline.com" kecil di kiri atas — seperti kontainer Temas asli.
+ */
+function drawTemas(g: CanvasRenderingContext2D, length: number, m: (v: number) => number, color: string) {
+  const H = BOX.height;
+  const is40 = length > 9;
+  const k = is40 ? 1.15 : 1;
+  const big = m(0.62 * k);
+  const small = big * 0.62;
+  const fontBig = `italic 900 ${big}px 'Arial Black', 'Segoe UI Black', Arial, sans-serif`;
+  const fontSmall = `italic 800 ${small}px 'Arial Black', 'Segoe UI Black', Arial, sans-serif`;
+  g.save();
+  g.textBaseline = 'alphabetic';
+  g.textAlign = 'left';
+  g.font = fontBig;
+  const wT = g.measureText('TEMAS').width;
+  const gap = big * 0.3;
+  g.font = fontSmall;
+  const wL = g.measureText('LINE').width;
+  const tw = wT + gap + wL;
+  const left = m(length * (is40 ? 0.42 : 0.49)) - tw / 2;
+  const base = m(H * 0.68);
+  g.fillStyle = color;
+  g.font = fontBig;
+  g.fillText('TEMAS', left, base);
+  g.font = fontSmall;
+  g.fillText('LINE', left + wT + gap, base);
+  // Bendera di atas tulisan, mulai ±36% lebar tulisan.
+  // Ukuran bendera tetap di 40ft (tulisannya saja yang membesar) supaya
+  // tiangnya tidak menyentuh huruf.
+  drawTemasFlag(g, left + tw * 0.36, m(H * (is40 ? 0.1 : 0.14)), m(0.95), m(0.6));
+  // Alamat web kecil di kiri atas.
+  g.fillStyle = color;
+  g.font = `600 ${m(0.1)}px Arial, sans-serif`;
+  g.textAlign = 'left';
+  g.fillText('www.temasline.com', Math.max(m(0.45), left - m(0.7)), m(H * 0.18));
+  g.restore();
+}
+
+/**
  * Lambang bulat CTP di puncak pita: cincin navy dengan sapuan biru di
  * dalamnya (versi sederhana dari foto; bentuk resminya belum ada berkasnya).
  */
@@ -1058,6 +1510,23 @@ function drawMarkings(
   g.fillStyle = '#4a4e51';
   for (let i = 0; i < 9; i++) g.fillRect(px + ds(0.02), py + ds(0.03 + i * 0.027), ds(i % 3 === 0 ? 0.18 : 0.13), ds(0.007));
 
+  // Daun kiri, atas: logo merek di pintu (Textainer: "tex" serif putih;
+  // KMTC: kotak bendera K).
+  if (DOOR_FLAG[liv.code] === 'kmtc') {
+    const s = ds(0.42);
+    drawKmtcFlagBox(g, dx(0.36), dy(0.3), s, liv.bodyColor);
+  }
+  const doorLogo = DOOR_LOGO[liv.code];
+  if (doorLogo) {
+    g.save();
+    g.fillStyle = INK;
+    g.textAlign = 'center';
+    g.textBaseline = 'alphabetic';
+    g.font = `${doorLogo.weight} ${ds(doorLogo.px)}px ${doorLogo.font}`;
+    g.fillText(doorLogo.text, dx(0.58), dy(0.68));
+    g.restore();
+  }
+
   return { canvas: cv, zones, pending };
 }
 
@@ -1122,12 +1591,8 @@ export function paintMaps() {
   g.fillRect(0, N * 0.88, N, N * 0.12);
 
   const d = g.getImageData(0, 0, N, N).data;
-  const lin = (c: number) => {
-    const v = c / 255;
-    return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-  };
   let sum = 0;
-  for (let i = 0; i < d.length; i += 16) sum += 0.2126 * lin(d[i]) + 0.7152 * lin(d[i + 1]) + 0.0722 * lin(d[i + 2]);
+  for (let i = 0; i < d.length; i += 16) sum += 0.2126 * SRGB_LIN[d[i]] + 0.7152 * SRGB_LIN[d[i + 1]] + 0.0722 * SRGB_LIN[d[i + 2]];
   const mean = sum / (d.length / 16);
 
   const tex = new THREE.CanvasTexture(cv);
@@ -1364,7 +1829,14 @@ export function addFrame(
 
 }
 
-type Geo = { paint: THREE.BufferGeometry; dark: THREE.BufferGeometry; metal: THREE.BufferGeometry; atlas: Atlas };
+type Geo = {
+  paint: THREE.BufferGeometry;
+  dark: THREE.BufferGeometry;
+  metal: THREE.BufferGeometry;
+  /** Open top saja: terpal biru penutup atap. */
+  tarp: THREE.BufferGeometry | null;
+  atlas: Atlas;
+};
 
 /**
  * Logam galvanis pintu (batang kunci, gagang): satu material bersama untuk
@@ -1383,8 +1855,8 @@ export function doorMetalMaterial() {
 
 const geoCache = new Map<string, Geo>();
 
-function buildGeometry(L: number, q: Quality = 'yard'): Geo {
-  const cached = geoCache.get(`${L}|${q}`);
+function buildGeometry(L: number, q: Quality = 'yard', openTop = false): Geo {
+  const cached = geoCache.get(`${L}|${q}|${openTop}`);
   if (cached) return cached;
   const hi = q === 'inspect';
   const rounds = hi ? 1 : 0;
@@ -1450,9 +1922,9 @@ function buildGeometry(L: number, q: Quality = 'yard'): Geo {
     }
   }
 
-  // ---- atap
+  // ---- atap (open top: terpal, dibangun di bawah)
   const roofPts = corrugation(-hx + CAST.x, hx - CAST.x, PITCH * 1.5, 0.022, rounds);
-  paint.push(
+  if (!openTop) paint.push(
     sheet({
       pts: roofPts,
       t0: -hz + RAIL_T,
@@ -1491,8 +1963,38 @@ function buildGeometry(L: number, q: Quality = 'yard'): Geo {
   // Kotak dalam gelap: menutup celah; di ujung pintu berhenti di belakang daun.
   dark.push(box(L - 0.18, H - 0.12, W - 0.16, -0.02, 0, 0));
 
-  const out: Geo = { paint: merge(paint.map(plainDecal)), dark: merge(dark), metal: merge(metal), atlas: A };
-  geoCache.set(`${L}|${q}`, out);
+  // ---- terpal open top: lembar di atas busur-busur melintang, rok yang
+  // turun menutupi rel atas di keempat sisi, dan deretan mata ayam logam.
+  let tarp: THREE.BufferGeometry | null = null;
+  if (openTop) {
+    const tp: THREE.BufferGeometry[] = [];
+    const SK = 0.17; // tinggi rok terpal
+    const sy = hy - SK / 2 + 0.01;
+    tp.push(box(L - 0.12, 0.012, W - 0.02, 0, hy + 0.012, 0));
+    // Busur atap di bawah terpal: punggung melintang tiap ±0,9 m.
+    const bows = Math.max(2, Math.round((L - 0.4) / 0.9));
+    for (let i = 0; i <= bows; i++) {
+      const x = -hx + 0.2 + ((L - 0.4) * i) / bows;
+      tp.push(rod(0.02, W - 0.03, x, hy + 0.018, 0, 'z', hi ? 8 : 5));
+    }
+    for (const side of [1, -1]) {
+      tp.push(box(L - 0.1, SK, 0.01, 0, sy, side * (hz + 0.012)));
+      tp.push(box(0.01, SK, W - 0.02, side * (hx + 0.012), sy, 0));
+    }
+    tarp = merge(tp);
+    // Mata ayam: tiap ±0,3 m di sisi panjang, tujuh di tiap ujung.
+    const n = Math.round((L - 0.3) / 0.3);
+    for (const side of [1, -1]) {
+      for (let i = 0; i <= n; i++) {
+        const x = -hx + 0.15 + ((L - 0.3) * i) / n;
+        metal.push(box(0.035, 0.035, 0.006, x, hy - 0.035, side * (hz + 0.019)));
+      }
+      for (let i = 1; i < 8; i++) metal.push(box(0.006, 0.035, 0.035, side * (hx + 0.019), hy - 0.035, -hz + (W * i) / 8));
+    }
+  }
+
+  const out: Geo = { paint: merge(paint.map(plainDecal)), dark: merge(dark), metal: merge(metal), tarp, atlas: A };
+  geoCache.set(`${L}|${q}|${openTop}`, out);
   return out;
 }
 
@@ -1532,13 +2034,7 @@ export const marksListeners = new Set<() => void>();
 
 /** Gambar logo berkas (public/liveries/) ke atlas setelah termuat. */
 /** Luminansi relatif (WCAG) dari komponen sRGB 0–255. */
-const relLum = (r: number, gr: number, b: number) => {
-  const lin = (c: number) => {
-    const v = c / 255;
-    return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-  };
-  return 0.2126 * lin(r) + 0.7152 * lin(gr) + 0.0722 * lin(b);
-};
+const relLum = (r: number, gr: number, b: number) => 0.2126 * srgbLin(r) + 0.7152 * srgbLin(gr) + 0.0722 * srgbLin(b);
 
 /**
  * Logo tanpa transparansi (JPG, atau PNG berlatar putih/abu seperti CMA CGM,
@@ -1910,11 +2406,39 @@ type Variant = 'tint' | 'plain';
 const modelCache = new Map<string, InstancedModel>();
 
 /**
+ * Logo merek di daun pintu KIRI bagian atas (dilihat dari belakang), warna =
+ * warna tulisan livery. Textainer: "tex" huruf kecil serif, mendatar.
+ */
+const DOOR_LOGO: Record<string, { text: string; font: string; weight: number; px: number }> = {
+  TEX_GP: { text: 'tex', font: "Georgia, 'Times New Roman', serif", weight: 500, px: 0.46 },
+};
+
+/** Logo bergambar di daun pintu kiri atas (KMTC: kotak bendera K, foto asli). */
+const DOOR_FLAG: Record<string, 'kmtc'> = { KMTC_GP: 'kmtc' };
+
+/** Terpal PVC biru open top: satu material bersama, kusam, tidak ikut pewarnaan. */
+let tarpMat: THREE.MeshPhongMaterial | null = null;
+function tarpMaterial() {
+  tarpMat ??= new THREE.MeshPhongMaterial({ color: new THREE.Color('#1d3f94'), shininess: 6, specular: new THREE.Color('#1a2238') });
+  return tarpMat;
+}
+
+/** Open top menurut data: kode ISO berkelompok U (22U1, 42U1, 45U1…) atau jenis OT. */
+export const isOpenTop = (c: { isoCode?: string; typeCode?: string }) =>
+  (c.isoCode ?? '').toUpperCase().charAt(2) === 'U' || (c.typeCode ?? '').toUpperCase() === 'OT';
+
+/**
  * Model instanced kontainer realistis, berbentuk sama dengan hasil olahan aset
  * GLB (parts20 + parts40), jadi YardContainers bisa menukarnya langsung.
  */
-export function realisticContainerModel(variant: Variant, liv: Livery = MAERSK, quality: Quality = 'yard'): InstancedModel {
-  const cacheKey = `${variant}|${quality}|${liveryKey(liv)}`;
+export function realisticContainerModel(
+  variant: Variant,
+  liv: Livery = MAERSK,
+  quality: Quality = 'yard',
+  /** Open top (ISO 22U1 dsb.): atap terpal biru, bukan atap baja. */
+  openTop = false,
+): InstancedModel {
+  const cacheKey = `${variant}|${quality}|${liveryKey(liv)}|${openTop}`;
   const hit = modelCache.get(cacheKey);
   if (hit) return hit;
   const { tex, normal, mean } = paintMaps();
@@ -1931,7 +2455,7 @@ export function realisticContainerModel(variant: Variant, liv: Livery = MAERSK, 
   });
 
   const partsFor = (L: number): ModelPart[] => {
-    const geo = buildGeometry(L, quality);
+    const geo = buildGeometry(L, quality, openTop);
     // Cat industri semi-gloss: sorotan lebar dan lembut. Satu material per
     // panjang karena atlas markanya berbeda.
     const paint = new THREE.MeshPhongMaterial({
@@ -1951,6 +2475,7 @@ export function realisticContainerModel(variant: Variant, liv: Livery = MAERSK, 
       { name: `gp-${liv.code}-${L}-paint`, geometry: geo.paint, material: paint },
       { name: `gp-${liv.code}-${L}-dark`, geometry: geo.dark, material: dark },
       { name: `gp-${liv.code}-${L}-metal`, geometry: geo.metal, material: doorMetalMaterial() },
+      ...(geo.tarp ? [{ name: `gp-${liv.code}-${L}-tarp`, geometry: geo.tarp, material: tarpMaterial() }] : []),
     ];
   };
 

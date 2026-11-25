@@ -97,10 +97,10 @@ export function KioskView() {
         <div className="hud-panel px-5 py-3">
           <div className="text-[13px] uppercase tracking-[0.3em] text-sky-300">Container Yard 3D</div>
           <div className="mt-1 text-[44px] font-semibold leading-none tabular-nums text-white">
-            {now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+            {now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
           </div>
           <div className="mt-1 text-[14px] text-slate-300">
-            {now.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+            {now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
           </div>
           <div className="pointer-events-auto">
             <DayClock />
@@ -111,30 +111,30 @@ export function KioskView() {
           onClick={() => setOption('kiosk', false)}
           className="hud-panel pointer-events-auto px-3 py-1.5 text-[12px] text-slate-400 hover:text-slate-100"
         >
-          Keluar (Esc)
+          Exit (Esc)
         </button>
       </div>
 
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap gap-3">
-          <Tile label="Kontainer" value={nf(data?.meta.totalContainers ?? 0)} hint={`${nf(data?.meta.totalTeu ?? 0)} TEU`} />
+          <Tile label="Containers" value={nf(data?.meta.totalContainers ?? 0)} hint={`${nf(data?.meta.totalTeu ?? 0)} TEU`} />
           <Tile
-            label="Okupansi"
+            label="Occupancy"
             value={`${pct.toFixed(0)}%`}
-            hint={`dari ${nf(capacity)} slot`}
+            hint={`of ${nf(capacity)} slots`}
             tone={pct >= 90 ? 'text-red-300' : pct >= 80 ? 'text-amber-300' : undefined}
           />
-          <Tile label="Truk di lapangan" value={String(Math.max(trips, kpi?.trucksInside ?? 0))} hint={`${trips} dianimasikan`} />
-          <Tile label="Gate hari ini" value={kpi ? `${kpi.gateToday.in} / ${kpi.gateToday.out}` : '—'} hint="masuk / keluar" />
+          <Tile label="Trucks in yard" value={String(Math.max(trips, kpi?.trucksInside ?? 0))} hint={`${trips} animated`} />
+          <Tile label="Gate today" value={kpi ? `${kpi.gateToday.in} / ${kpi.gateToday.out}` : '—'} hint="in / out" />
           <Tile
             label="Turnaround"
-            value={kpi?.turnaroundMin != null ? `${kpi.turnaroundMin.toFixed(0)} mnt` : '—'}
-            hint="gate in → out, 7 hari"
+            value={kpi?.turnaroundMin != null ? `${kpi.turnaroundMin.toFixed(0)} min` : '—'}
+            hint="gate in → out, 7 days"
           />
           <Tile
-            label={`Lewat ${kpi?.overdueDays ?? 30} hari`}
+            label={`Over ${kpi?.overdueDays ?? 30} days`}
             value={kpi ? nf(kpi.overdue) : '—'}
-            hint="kontainer"
+            hint="containers"
             tone={kpi && kpi.overdue > 0 ? 'text-amber-300' : undefined}
           />
         </div>
@@ -149,7 +149,7 @@ export function KioskView() {
                 />
               </div>
               <span className="w-12 text-right text-[16px] tabular-nums">{o.pct.toFixed(0)}%</span>
-              <span className="w-24 text-right text-[12px] tabular-nums text-slate-400">sisa {nf(o.free)}</span>
+              <span className="w-24 text-right text-[12px] tabular-nums text-slate-400">free {nf(o.free)}</span>
             </div>
           ))}
         </div>

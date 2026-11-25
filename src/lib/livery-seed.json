@@ -1,7 +1,6 @@
 {
   "_catatan": "model (GP_CORRUGATED default / REEFER_PANEL / TANK) dan kind (GP default / REEFER / TANK) opsional. Daftar livery bawaan. Tiap agen punya livery GP, reefer (*_REEFER: badan putih, logo merek) dan ISO tank (*_TANK: tabung putih, logo merek) dengan prefix yang sama. Dibaca scripts/seed-livery-logos.mjs (isi master Oracle) dan src/lib/livery.ts (cadangan saat master tidak terbaca). Prefix wajib dicek ke registri BIC; body = warna badan sementara, sesuaikan dengan foto kontainer asli. Prefix dicocokkan ke daftar pemilik (Terminal49, lembar komunitas, IICL 2016) pada 2026-11-19; yang belum terverifikasi: MRLU, SPLU, RCLU, ICBU, KKFU, KKTU. _nonaktif = aturan prefix yang dinonaktifkan di master (active_flag N) oleh seed.",
   "_nonaktif": [
-    { "prefix": "TTNU", "kind": "GP", "alasan": "milik Triton (sewa), bukan Tanto" },
     { "prefix": "TTNU", "kind": "REEFER", "alasan": "milik Triton (sewa), bukan Tanto" },
     { "prefix": "TAKU", "kind": "GP", "alasan": "tebakan dari foto, tidak terverifikasi" },
     { "prefix": "TAKU", "kind": "REEFER", "alasan": "tebakan dari foto, tidak terverifikasi" }
@@ -37,7 +36,7 @@
     { "code": "WANHAI_GP", "brand": "Wan Hai Lines", "body": "#1C2F5E", "text": "#FFFFFF", "logo": "wan_hai.png", "scale": 0.45, "prefixes": ["WHLU", "WHSU"] },
     { "code": "WANHAI_REEFER", "brand": "Wan Hai Lines (reefer)", "model": "REEFER_PANEL", "kind": "REEFER", "body": "#ECEDEC", "text": "#1C1E20", "logo": "wan_hai.png", "scale": 0.45, "prefixes": ["WHLU", "WHSU"] },
     { "code": "WANHAI_TANK", "brand": "Wan Hai Lines (ISO tank)", "model": "TANK", "kind": "TANK", "body": "#F1F2F0", "text": "#1C1E20", "logo": "wan_hai.png", "scale": 0.45, "prefixes": ["WHLU", "WHSU"] },
-    { "code": "KMTC_GP", "brand": "KMTC", "body": "#D9DCDF", "text": "#1C1E20", "logo": "kmtc-logo.png", "scale": 0.45, "prefixes": ["KMTU"] },
+    { "code": "KMTC_GP", "brand": "KMTC", "body": "#2D50A6", "text": "#FFFFFF", "logo": "kmtc-logo.png", "scale": 0.45, "prefixes": ["KMTU"] },
     { "code": "KMTC_REEFER", "brand": "KMTC (reefer)", "model": "REEFER_PANEL", "kind": "REEFER", "body": "#ECEDEC", "text": "#1C1E20", "logo": "kmtc-logo.png", "scale": 0.45, "prefixes": ["KMTU"] },
     { "code": "KMTC_TANK", "brand": "KMTC (ISO tank)", "model": "TANK", "kind": "TANK", "body": "#F1F2F0", "text": "#1C1E20", "logo": "kmtc-logo.png", "scale": 0.45, "prefixes": ["KMTU"] },
     { "code": "OOCL_GP", "brand": "OOCL", "body": "#C9CCCF", "text": "#1C1E20", "logo": "Logo_OOCL.svg.webp", "scale": 0.5, "prefixes": ["OOLU", "OOCU"] },
@@ -55,10 +54,15 @@
     { "code": "SPIL_GP", "brand": "Salam Pacific Indonesia Lines", "body": "#3E9F4A", "text": "#FFFFFF", "logo": "spil.png", "scale": 0.9, "prefixes": ["SPNU", "SPLU"] },
     { "code": "SPIL_REEFER", "brand": "Salam Pacific Indonesia Lines (reefer)", "model": "REEFER_PANEL", "kind": "REEFER", "body": "#ECEDEC", "text": "#1C1E20", "logo": "spil.png", "scale": 0.9, "prefixes": ["SPNU", "SPLU"] },
     { "code": "SPIL_TANK", "brand": "Salam Pacific Indonesia Lines (ISO tank)", "model": "TANK", "kind": "TANK", "body": "#F1F2F0", "text": "#B5202A", "logo": "spil.png", "scale": 0.9, "prefixes": ["SPNU", "SPLU"] },
+    { "code": "SITC_GP", "brand": "SITC Container Lines", "body": "#2381CC", "text": "#FFFFFF", "logo": null, "scale": 0.5, "prefixes": ["SITU"] },
+    { "code": "TEX_GP", "brand": "Textainer", "body": "#8E2A25", "text": "#FFFFFF", "logo": null, "scale": 0.5, "prefixes": ["AMFU", "TEMU", "TEXU", "TGHU", "XINU"] },
+    { "code": "TEX_REEFER", "brand": "Textainer (reefer)", "model": "REEFER_PANEL", "kind": "REEFER", "body": "#ECEDEC", "text": "#A3222B", "logo": null, "scale": 0.5, "prefixes": ["AMFU", "TEMU", "TEXU", "TGHU", "XINU"] },
+    { "code": "EAGLE_TANK", "brand": "Eagletainer (ISO tank)", "model": "TANK", "kind": "TANK", "body": "#F1F2F0", "text": "#1D3E9E", "logo": null, "scale": 0.5, "prefixes": ["EOLU"] },
+    { "code": "TRITON_GP", "brand": "Triton International", "body": "#8A3B2C", "text": "#F4F4F2", "logo": null, "scale": 0.5, "prefixes": ["TCKU", "TCNU", "TTNU"] },
     { "code": "TANTO_GP", "brand": "Tanto Intim Line", "body": "#1E3E8C", "text": "#FFFFFF", "logo": "tanto_intim_line.png", "scale": 0.9, "prefixes": ["ICBU"] },
     { "code": "TANTO_REEFER", "brand": "Tanto Intim Line (reefer)", "model": "REEFER_PANEL", "kind": "REEFER", "body": "#ECEDEC", "text": "#1C1E20", "logo": "tanto_intim_line.png", "scale": 0.9, "prefixes": ["ICBU"] },
     { "code": "TANTO_TANK", "brand": "Tanto Intim Line (ISO tank)", "model": "TANK", "kind": "TANK", "body": "#F1F2F0", "text": "#1B3A80", "logo": "tanto_intim_line.png", "scale": 0.9, "prefixes": ["ICBU"] },
-    { "code": "TEMAS_GP", "brand": "Temas Line", "body": "#D9DCDF", "text": "#1C1E20", "logo": "temas.png", "scale": 0.6, "prefixes": [] },
+    { "code": "TEMAS_GP", "brand": "Temas Line", "body": "#7A2A2B", "text": "#FFFFFF", "logo": "temas.png", "scale": 0.6, "prefixes": [] },
     { "code": "TEMAS_REEFER", "brand": "Temas Line (reefer)", "model": "REEFER_PANEL", "kind": "REEFER", "body": "#ECEDEC", "text": "#1C1E20", "logo": "temas.png", "scale": 0.6, "prefixes": [] },
     { "code": "TEMAS_TANK", "brand": "Temas Line (ISO tank)", "model": "TANK", "kind": "TANK", "body": "#F1F2F0", "text": "#1C1E20", "logo": "temas.png", "scale": 0.6, "prefixes": [] },
     { "code": "KLINE_GP", "brand": "K Line (Kawasaki Kisen Kaisha)", "body": "#C42A2E", "text": "#FFFFFF", "logo": null, "scale": 0.5, "prefixes": ["KKLU", "KKFU", "KKTU"] },
@@ -70,7 +74,7 @@
     { "code": "SEACO_GP", "brand": "Seaco", "body": "#22304F", "text": "#FFFFFF", "logo": null, "scale": 0.5, "prefixes": ["SEGU", "SCZU", "GESU"] },
     { "code": "SEACO_REEFER", "brand": "Seaco (reefer)", "model": "REEFER_PANEL", "kind": "REEFER", "body": "#ECEDEC", "text": "#1C1E20", "logo": null, "scale": 0.5, "prefixes": ["SEGU", "SCZU", "GESU"] },
     { "code": "SEACO_TANK", "brand": "Seaco (ISO tank)", "model": "TANK", "kind": "TANK", "body": "#F1F2F0", "text": "#1C1E20", "logo": null, "scale": 0.5, "prefixes": ["SEGU", "SCZU", "GESU"] },
-    { "code": "SAMUDERA_GP", "brand": "Samudera Indonesia", "body": "#D9DCDF", "text": "#1C1E20", "logo": "samudera-indonesia.png", "scale": 0.45, "prefixes": ["SIKU"] },
+    { "code": "SAMUDERA_GP", "brand": "Samudera Indonesia", "body": "#F2B21E", "text": "#1C1E20", "logo": "samudera-indonesia.png", "scale": 0.45, "prefixes": ["SIKU"] },
     { "code": "SAMUDERA_REEFER", "brand": "Samudera Indonesia (reefer)", "model": "REEFER_PANEL", "kind": "REEFER", "body": "#ECEDEC", "text": "#1C1E20", "logo": "samudera-indonesia.png", "scale": 0.45, "prefixes": ["SIKU"] },
     { "code": "SAMUDERA_TANK", "brand": "Samudera Indonesia (ISO tank)", "model": "TANK", "kind": "TANK", "body": "#F1F2F0", "text": "#1C1E20", "logo": "samudera-indonesia.png", "scale": 0.45, "prefixes": ["SIKU"] }
   ]

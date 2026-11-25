@@ -111,9 +111,9 @@ export function connectRoads(
   const sj = cellOf(from.z);
   const ei = cellOf(to.x);
   const ej = cellOf(to.z);
-  if (si === ei && sj === ej) return { ok: false, reason: 'Titik awal dan akhir di petak yang sama.' };
-  if (blocked(si, sj)) return { ok: false, reason: 'Titik awal berada di blok — klik di aspal kosong atau di jalan.' };
-  if (blocked(ei, ej)) return { ok: false, reason: 'Titik akhir berada di blok — klik di aspal kosong atau di jalan.' };
+  if (si === ei && sj === ej) return { ok: false, reason: 'Start and end points are in the same cell.' };
+  if (blocked(si, sj)) return { ok: false, reason: 'Start point is inside a block — click on empty asphalt or on a road.' };
+  if (blocked(ei, ej)) return { ok: false, reason: 'End point is inside a block — click on empty asphalt or on a road.' };
 
   // --- A* ------------------------------------------------------------------
   type Node = { i: number; j: number; g: number; f: number; dir: Arm | null; prev: string | null };
@@ -148,7 +148,7 @@ export function connectRoads(
       open.set(nk, { i: ni, j: nj, g, f: g + h(ni, nj), dir: arm, prev: ck });
     }
   }
-  if (!found) return { ok: false, reason: 'Tidak ada jalur yang tidak menembus blok di antara kedua titik.' };
+  if (!found) return { ok: false, reason: 'No route between the two points that avoids every block.' };
 
   // --- jalur → lengan tiap petak --------------------------------------------
   const path: Node[] = [];

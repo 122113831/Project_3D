@@ -15,6 +15,7 @@ import { warehouseModel } from './warehouse';
 import { createReachStacker } from './reachStacker';
 import type { WarehouseSpec } from './warehouseSpec';
 import { parkingModel } from './parking';
+import { buildReeferRack, rackMaterials } from './reeferRack';
 import { PARKING_VEHICLE, parkingSpec, type ParkingSpec } from './parkingSpec';
 import {
   createContainerGeometry,
@@ -45,12 +46,12 @@ import {
 export type AssetCategory = 'block' | 'road' | 'gate' | 'equipment' | 'warehouse' | 'parking';
 
 export const CATEGORY_LABEL: Record<AssetCategory, string> = {
-  block: 'Blok',
-  road: 'Jalan',
+  block: 'Block',
+  road: 'Road',
   gate: 'Gate',
-  equipment: 'Alat',
+  equipment: 'Equipment',
   warehouse: 'Warehouse',
-  parking: 'Parkir',
+  parking: 'Parking',
 };
 
 export type AssetSpec =
@@ -81,10 +82,19 @@ const GATE_FRAME = new THREE.MeshPhongMaterial({ color: '#9aa3ad', shininess: 14
 const CARGO = ['#3f6ea8', '#c0392b', '#2f8f5b', '#d8a520', '#8d949c'].map(
   (c) => new THREE.MeshPhongMaterial({ color: c, shininess: 12 }),
 );
+/** Reefer di kartu blok reefer: badan putih. */
+const REEFER_WHITE = new THREE.MeshPhongMaterial({ color: '#e9ecee', shininess: 20 });
 
 /** Alas blok beserta beberapa tumpukan contoh. */
-function blockPreview(slots: number, rows: number, tiers: number) {
+function blockPreview(slots: number, rows: number, tiers: number, reefer = false) {
   const g = new THREE.Group();
+  if (reefer) {
+    // Blok reefer: rak listriknya ikut di kartu, tumpukan reefer putih.
+    const rack = buildReeferRack(slots, rows, tiers, 1);
+    const rm = rackMaterials();
+    for (const k of ['steel', 'rail', 'grating', 'socket'] as const) g.add(new THREE.Mesh(rack[k], rm[k]));
+  }
+  const cargo = reefer ? [REEFER_WHITE] : CARGO;
   const length = slots * PITCH.teu;
   const width = rows * PITCH.row;
 
@@ -105,7 +115,7 @@ function blockPreview(slots: number, rows: number, tiers: number) {
     for (let row = 0; row < rows; row++) {
       const height = ((bay * 7 + row * 3) % tiers) + 1;
       for (let t = 1; t <= height; t++) {
-        const m = new THREE.Mesh(geo20, CARGO[(bay + row + t) % CARGO.length]);
+        const m = new THREE.Mesh(geo20, cargo[(bay + row + t) % cargo.length]);
         m.position.set(
           -length / 2 + (bay + 0.5) * PITCH.teu,
           (t - 1) * PITCH.tier + BOX.height / 2,
@@ -192,17 +202,17 @@ function parkingPreview(spec: Partial<ParkingSpec>) {
 
 /** Area parkir siap pakai; jumlah lajur & baris tetap bisa diubah di panel. */
 const PARKING_PRESETS: { id: string; label: string; spec: Partial<ParkingSpec> }[] = [
-  { id: 'pk-rs-4', label: 'Parkir RS 4 lajur', spec: { vehicle: 'reachStacker', bays: 4, rows: 1, label: 'PARKIR RS' } },
-  { id: 'pk-rs-8', label: 'Parkir RS 2 baris', spec: { vehicle: 'reachStacker', bays: 4, rows: 2, label: 'PARKIR RS' } },
-  { id: 'pk-truck-6', label: 'Parkir truk 6 lajur', spec: { vehicle: 'truck', bays: 6, rows: 1, label: 'PARKIR TRUK' } },
+  { id: 'pk-rs-4', label: 'RS parking, 4 bays', spec: { vehicle: 'reachStacker', bays: 4, rows: 1, label: 'RS PARKING' } },
+  { id: 'pk-rs-8', label: 'RS parking, 2 rows', spec: { vehicle: 'reachStacker', bays: 4, rows: 2, label: 'RS PARKING' } },
+  { id: 'pk-truck-6', label: 'Truck parking, 6 bays', spec: { vehicle: 'truck', bays: 6, rows: 1, label: 'TRUCK PARKING' } },
 ];
 
 /** Ukuran gudang siap pakai di palet; ukuran & detail tetap bisa diubah di panel. */
 const WAREHOUSE_PRESETS: { id: string; label: string; spec: Partial<WarehouseSpec> }[] = [
-  { id: 'wh-s', label: 'Gudang kecil', spec: { w: 30, d: 18, h: 7, roof: 'gable', office: false, canopy: false, label: 'GUDANG' } },
-  { id: 'wh-m', label: 'Gudang sedang', spec: { w: 60, d: 30, h: 9, roof: 'gable', label: 'GUDANG' } },
-  { id: 'wh-l', label: 'Gudang besar', spec: { w: 96, d: 42, h: 12, roof: 'saw', wall: '#cfd6cf', roofColor: '#2f6b46', label: 'GUDANG' } },
-  { id: 'wh-cfs', label: 'Gudang CFS', spec: { w: 72, d: 36, h: 10, roof: 'flat', wall: '#e8e2d2', roofColor: '#9a3b2c', label: 'CFS' } },
+  { id: 'wh-s', label: 'Small warehouse', spec: { w: 30, d: 18, h: 7, roof: 'gable', office: false, canopy: false, label: 'WAREHOUSE' } },
+  { id: 'wh-m', label: 'Medium warehouse', spec: { w: 60, d: 30, h: 9, roof: 'gable', label: 'WAREHOUSE' } },
+  { id: 'wh-l', label: 'Large warehouse', spec: { w: 96, d: 42, h: 12, roof: 'saw', wall: '#cfd6cf', roofColor: '#2f6b46', label: 'WAREHOUSE' } },
+  { id: 'wh-cfs', label: 'CFS warehouse', spec: { w: 72, d: 36, h: 10, roof: 'flat', wall: '#e8e2d2', roofColor: '#9a3b2c', label: 'CFS' } },
 ];
 
 // --- katalog -----------------------------------------------------------------
@@ -220,10 +230,21 @@ export const ASSET_ITEMS: AssetItem[] = [
   {
     id: 'block-new',
     category: 'block',
-    label: 'Blok baru',
-    detail: `Awal ${dim(20, 6)} · ukuran diatur di dialog`,
+    label: 'New block',
+    detail: `Starts at ${dim(20, 6)} · size set in the dialog`,
     spec: { kind: 'block', block: { slots: 20, rows: 6, tiers: 7, slotStep: 2, rot: 0, truckLane: 'L', slotStart: 'L' } },
     build: () => blockPreview(20, 6, 7),
+  },
+  {
+    id: 'block-reefer',
+    category: 'block',
+    label: 'Reefer block',
+    detail: `Reefer-only block with power racks · ${dim(20, 6)}`,
+    spec: {
+      kind: 'block',
+      block: { slots: 20, rows: 6, tiers: 5, slotStep: 2, rot: 0, truckLane: 'L', slotStart: 'L', reefer: true },
+    },
+    build: () => blockPreview(20, 6, 5, true),
   },
 
   // Satu kartu per bentuk ubin. Arah belokan tidak perlu kartu sendiri:
@@ -233,7 +254,7 @@ export const ASSET_ITEMS: AssetItem[] = [
       id: `road-${k}`,
       category: 'road',
       label: ROAD_LABEL[k],
-      detail: `${ROAD.tile} x ${ROAD.tile} m · R memutar 90°`,
+      detail: `${ROAD.tile} x ${ROAD.tile} m · R rotates 90°`,
       spec: { kind: 'road', road: { kind: k, ry: 0 } },
       build: () => roadPreview(k),
     }),
@@ -242,16 +263,16 @@ export const ASSET_ITEMS: AssetItem[] = [
   {
     id: 'rtg-detail',
     category: 'equipment',
-    label: 'RTG detail (kuning)',
-    detail: 'Portal 25 m · prosedural · menyesuaikan lebar blok',
+    label: 'Detailed RTG (yellow)',
+    detail: '25 m gantry · procedural · fits block width',
     spec: { kind: 'equipment', equipment: 'rtgDetail' },
     build: () => rtgDetailPreview(),
   },
   {
     id: 'rtg-detail-2',
     category: 'equipment',
-    label: 'RTG detail 2 (festoon)',
-    detail: 'Portal 25 m · festoon kabel · menyesuaikan lebar blok',
+    label: 'Detailed RTG 2 (festoon)',
+    detail: '25 m gantry · cable festoon · fits block width',
     spec: { kind: 'equipment', equipment: 'rtgDetail2' },
     build: () => rtgDetailPreview(rtgDetail2Model),
   },
@@ -259,7 +280,7 @@ export const ASSET_ITEMS: AssetItem[] = [
     id: 'rtg-asset',
     category: 'equipment',
     label: 'RTG crane',
-    detail: '16.084 triangle · aset GLB',
+    detail: '16,084 triangles · GLB asset',
     spec: { kind: 'equipment', equipment: 'rtgAsset' },
     model: RTG_CRANE_MODEL_URL,
   },
@@ -267,7 +288,7 @@ export const ASSET_ITEMS: AssetItem[] = [
     id: 'itv',
     category: 'equipment',
     label: 'ITV',
-    detail: '16,4 m · 23.683 triangle · aset GLB',
+    detail: '16.4 m · 23,683 triangles · GLB asset',
     spec: { kind: 'equipment', equipment: 'itv' },
     model: ITV_MODEL_URL,
   },
@@ -275,15 +296,15 @@ export const ASSET_ITEMS: AssetItem[] = [
     id: 'sts',
     category: 'equipment',
     label: 'STS crane',
-    detail: '114 m jangkauan · 23.502 triangle · aset GLB',
+    detail: '114 m outreach · 23,502 triangles · GLB asset',
     spec: { kind: 'equipment', equipment: 'sts' },
     model: STS_MODEL_URL,
   },
   {
     id: 'rtg',
     category: 'equipment',
-    label: 'RTG prosedural',
-    detail: 'Portal 27 m · menyesuaikan lebar blok',
+    label: 'Procedural RTG',
+    detail: '27 m gantry · fits block width',
     spec: { kind: 'equipment', equipment: 'rtg' },
     build: rtgPreview,
   },
@@ -294,7 +315,7 @@ export const ASSET_ITEMS: AssetItem[] = [
     id: 'gate-both',
     category: 'gate',
     label: 'Gate in/out',
-    detail: `${GATE.lanes} lajur · ${GATE.lanes / 2} masuk + ${GATE.lanes / 2} keluar`,
+    detail: `${GATE.lanes} lanes · ${GATE.lanes / 2} in + ${GATE.lanes / 2} out`,
     spec: { kind: 'equipment', equipment: 'gate' },
     build: () => gatePreview('both'),
   },
@@ -302,7 +323,7 @@ export const ASSET_ITEMS: AssetItem[] = [
     id: 'gate-in',
     category: 'gate',
     label: 'Gate in',
-    detail: `${GATE.lanes} lajur masuk · ${GATE.depth} x ${GATE.span} m`,
+    detail: `${GATE.lanes} lanes in · ${GATE.depth} x ${GATE.span} m`,
     spec: { kind: 'equipment', equipment: 'gateIn' },
     build: () => gatePreview('in'),
   },
@@ -310,7 +331,7 @@ export const ASSET_ITEMS: AssetItem[] = [
     id: 'gate-out',
     category: 'gate',
     label: 'Gate out',
-    detail: `${GATE.lanes} lajur keluar · ${GATE.depth} x ${GATE.span} m`,
+    detail: `${GATE.lanes} lanes out · ${GATE.depth} x ${GATE.span} m`,
     spec: { kind: 'equipment', equipment: 'gateOut' },
     build: () => gatePreview('out'),
   },
@@ -319,7 +340,7 @@ export const ASSET_ITEMS: AssetItem[] = [
       id: p.id,
       category: 'warehouse',
       label: p.label,
-      detail: `${p.spec.w} x ${p.spec.d} m · tinggi ${p.spec.h} m`,
+      detail: `${p.spec.w} x ${p.spec.d} m · ${p.spec.h} m high`,
       spec: { kind: 'equipment', equipment: 'warehouse', extra: { building: p.spec } },
       build: () => warehousePreview(p.spec),
     }),
@@ -330,7 +351,7 @@ export const ASSET_ITEMS: AssetItem[] = [
       id: p.id,
       category: 'parking',
       label: p.label,
-      detail: `${s.bays * s.rows} lajur ${PARKING_VEHICLE[s.vehicle].name.toLowerCase()} · tanpa alat`,
+      detail: `${s.bays * s.rows} ${PARKING_VEHICLE[s.vehicle].name.toLowerCase()} bays · no equipment`,
       spec: { kind: 'equipment', equipment: 'parking', extra: { parking: p.spec } },
       build: () => parkingPreview(p.spec),
     };
@@ -339,7 +360,7 @@ export const ASSET_ITEMS: AssetItem[] = [
     id: 'reach-stacker',
     category: 'equipment',
     label: 'Reach stacker',
-    detail: 'RS · boom teleskopik · spreader 20ft',
+    detail: 'RS · telescopic boom · 20ft spreader',
     spec: { kind: 'equipment', equipment: 'reachStacker' },
     // Pratinjau dengan boom terangkat, seperti foto acuan.
     build: () => createReachStacker('RS01', { angle: 0.62, ext: 3.5 }),
@@ -347,8 +368,8 @@ export const ASSET_ITEMS: AssetItem[] = [
   {
     id: 'lamp',
     category: 'equipment',
-    label: 'Tiang lampu',
-    detail: 'Tinggi 34 m',
+    label: 'Light pole',
+    detail: '34 m high',
     spec: { kind: 'equipment', equipment: 'lamp' },
     build: () => new THREE.Mesh(createLampGeometry(), LAMP),
   },

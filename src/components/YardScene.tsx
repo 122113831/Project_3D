@@ -8,6 +8,7 @@ import { useYard } from '@/store/useYard';
 import { BlockLabels } from './three/BlockLabels';
 import { EditorTools } from './three/EditorTools';
 import { CameraRig } from './three/CameraRig';
+import { PanelViewOffset } from './three/PanelViewOffset';
 import { Equipment } from './three/Equipment';
 import { Ground } from './three/Ground';
 import { Lighting } from './three/Lighting';
@@ -23,6 +24,7 @@ import { RsWorks } from './three/RsWorks';
 import { SlotGrid } from './three/SlotGrid';
 import { Traffic } from './three/Traffic';
 import { YardContainers } from './three/YardContainers';
+import { ReeferRacks } from './three/ReeferRacks';
 
 /**
  * Mengganti status shadow saat runtime butuh kompilasi ulang shader material.
@@ -88,6 +90,11 @@ export default function YardScene() {
         // Eksposur dinaikkan sedikit, bukan intensitas lampunya: R3F memakai
         // ACES filmic secara default, yang memang menekan midtone.
         gl.toneMappingExposure = 1.1;
+        // Pemeriksaan galat shader dimatikan: di Chrome Windows (ANGLE/D3D11)
+        // getProgramInfoLog saat program pertama dipakai memblokir ±1–2 dtk —
+        // terasa sebagai lag saat zoom (level detail pertama kali tampak).
+        // Nyalakan lagi dengan ?shaderdebug di URL saat menyunting shader.
+        gl.debug.checkShaderErrors = new URLSearchParams(window.location.search).has('shaderdebug');
         // Kabut sedikit lebih terang dari langit supaya horizon berkabut,
         // bukan menghilang jadi satu warna rata.
         scene.fog = new THREE.Fog('#bcd5ec', 1200, 4600);
@@ -97,6 +104,8 @@ export default function YardScene() {
       <PerfProbe />
       <Picking />
       <CameraRig />
+      {/* Gambar kamera bergeser saat panel kiri dok terbuka. */}
+      <PanelViewOffset />
 
       <Lighting />
       <Ground />
@@ -105,6 +114,8 @@ export default function YardScene() {
       <BlockInfo />
       <EquipmentLabels />
       <YardContainers />
+      {/* Rak listrik reefer di blok khusus reefer (tab Block di editor). */}
+      <ReeferRacks />
       {/* Kisi slot di editor, dan kotak merah slot terkunci di luar editor. */}
       <SlotGrid />
       <Equipment />

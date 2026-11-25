@@ -104,9 +104,9 @@ export function NewBlockDialog() {
   const width = rows * PITCH.row;
 
   const blocked = !transform
-    ? 'Skala peta belum dipaku. Isi DEPOT_MAP_SCALE di .env — tanpa itu posisi blok tidak akan kembali ke tempat yang sama setelah dimuat ulang.'
+    ? 'Map scale is not pinned. Set DEPOT_MAP_SCALE in .env — without it, block positions will not return to the same place after a reload.'
     : target && !target.enabled
-      ? 'Penulisan ke database dimatikan. Set DEPOT_DB_WRITE=true di .env.'
+      ? 'Database writes are disabled. Set DEPOT_DB_WRITE=true in .env.'
       : null;
 
   const submit = async () => {
@@ -160,9 +160,11 @@ export function NewBlockDialog() {
       // blok baru harus diadopsi — kalau tidak, ia tersimpan tapi tak terlihat.
       if (created && layout) {
         const [lb] = layoutFromData({ ...fresh!, blocks: [created] });
-        adoptBlock(lb);
+        // Blok reefer: penandanya hanya di tata letak (rak listrik), bukan di
+        // CORE_YARD_BLOCK.
+        adoptBlock(preset.reefer ? { ...lb, reefer: true } : lb);
       }
-      setNote(`Blok ${res.code} dibuat: ${res.slotRows.toLocaleString('id-ID')} baris slot.`);
+      setNote(`Block ${res.code} created: ${res.slotRows.toLocaleString('en-US')} slot rows.`);
       close();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -175,19 +177,19 @@ export function NewBlockDialog() {
     <div className="pointer-events-auto absolute inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="hud-panel w-[330px] overflow-hidden">
         <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
-          <span className="text-[13px] font-semibold text-slate-100">Blok baru</span>
+          <span className="text-[13px] font-semibold text-slate-100">{preset.reefer ? 'New reefer block' : 'New block'}</span>
           <button
             type="button"
             onClick={close}
             className="text-slate-500 hover:text-slate-200"
-            aria-label="Tutup"
+            aria-label="Close"
           >
             ✕
           </button>
         </div>
 
         <div className="space-y-2.5 px-3 py-3">
-          <Field label="Kode blok" hint="1–5 huruf/angka, harus unik di CORE_YARD_BLOCK">
+          <Field label="Block code" hint="1–5 letters/digits, must be unique in CORE_YARD_BLOCK">
             <input
               ref={firstField}
               value={code}
@@ -195,7 +197,7 @@ export function NewBlockDialog() {
               className={INPUT}
             />
           </Field>
-          <Field label="Nama blok">
+          <Field label="Block name">
             <input
               value={name}
               onChange={(e) => setName(e.target.value.slice(0, 20))}
@@ -234,39 +236,39 @@ export function NewBlockDialog() {
           </div>
 
           <div className="grid grid-cols-2 gap-2">
-            <Field label="Lajur truk" hint="CORE_YARD_BLOCK.TRUCK_LANE">
+            <Field label="Truck lane" hint="CORE_YARD_BLOCK.TRUCK_LANE">
               <select
                 value={truckLane}
                 onChange={(e) => setTruckLane(e.target.value as BlockSide)}
                 className={INPUT}
               >
-                <option value="L">Kiri</option>
-                <option value="R">Kanan</option>
+                <option value="L">Left</option>
+                <option value="R">Right</option>
               </select>
             </Field>
-            <Field label="Mulai slot" hint="CORE_YARD_BLOCK.SLOT_START">
+            <Field label="Slot start" hint="CORE_YARD_BLOCK.SLOT_START">
               <select
                 value={slotStart}
                 onChange={(e) => setSlotStart(e.target.value as BlockSide)}
                 className={INPUT}
               >
-                <option value="L">Kiri</option>
-                <option value="R">Kanan</option>
+                <option value="L">Left</option>
+                <option value="R">Right</option>
               </select>
             </Field>
           </div>
 
           <div className="rounded-md border border-white/10 bg-black/25 px-2.5 py-2 text-[11px] leading-relaxed text-slate-400">
             <div>
-              Ukuran {length.toFixed(1)} x {width.toFixed(1)} m
+              Size {length.toFixed(1)} x {width.toFixed(1)} m
             </div>
             <div>
-              Menulis <span className="text-slate-200">1</span> baris CORE_YARD_BLOCK dan{' '}
-              <span className="text-slate-200">{cells.toLocaleString('id-ID')}</span> baris
-              YARD_ROWTIER.
+              Writes <span className="text-slate-200">1</span> CORE_YARD_BLOCK row and{' '}
+              <span className="text-slate-200">{cells.toLocaleString('en-US')}</span> YARD_ROWTIER
+              rows.
             </div>
             {target && (
-              <div className="mt-1 truncate text-slate-500">ke {target.target}</div>
+              <div className="mt-1 truncate text-slate-500">to {target.target}</div>
             )}
           </div>
 
@@ -287,7 +289,7 @@ export function NewBlockDialog() {
               onClick={close}
               className="flex-1 rounded-md border border-white/10 py-1.5 text-[12px] text-slate-300 hover:border-white/25"
             >
-              Batal
+              Cancel
             </button>
             <button
               type="button"
@@ -295,7 +297,7 @@ export function NewBlockDialog() {
               onClick={() => void submit()}
               className="flex-1 rounded-md border border-sky-300/50 bg-sky-400/20 py-1.5 text-[12px] text-slate-50 disabled:opacity-40"
             >
-              {busy ? 'Menyimpan…' : 'Simpan ke database'}
+              {busy ? 'Saving…' : 'Save to database'}
             </button>
           </div>
         </div>

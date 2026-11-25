@@ -35,7 +35,7 @@ export const WAREHOUSE_DEFAULT: WarehouseSpec = {
   docks: true,
   canopy: true,
   office: true,
-  label: 'GUDANG',
+  label: 'WAREHOUSE',
 };
 
 /** Batas ukuran yang masuk akal (juga dipakai panel editor). */
@@ -43,10 +43,10 @@ export const WAREHOUSE_LIMITS = { w: [12, 160], d: [10, 80], h: [4, 18] } as con
 
 /** Pasangan warna dinding/atap yang tersedia di panel. */
 export const WAREHOUSE_PAINTS: { name: string; wall: string; roof: string }[] = [
-  { name: 'Abu & biru', wall: '#d9dedf', roof: '#3f6f9e' },
-  { name: 'Krem & merah', wall: '#e8e2d2', roof: '#9a3b2c' },
-  { name: 'Biru & seng', wall: '#2f5d8a', roof: '#cfd5d8' },
-  { name: 'Abu & hijau', wall: '#cfd6cf', roof: '#2f6b46' },
+  { name: 'Gray & blue', wall: '#d9dedf', roof: '#3f6f9e' },
+  { name: 'Cream & red', wall: '#e8e2d2', roof: '#9a3b2c' },
+  { name: 'Blue & zinc', wall: '#2f5d8a', roof: '#cfd5d8' },
+  { name: 'Gray & green', wall: '#cfd6cf', roof: '#2f6b46' },
 ];
 
 const clamp = (v: number, [lo, hi]: readonly [number, number]) => Math.min(hi, Math.max(lo, v));

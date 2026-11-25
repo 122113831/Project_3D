@@ -55,7 +55,7 @@ export function writeMatrices(
  * 'reefer' masih dilayani di sini walau chip-nya sudah pindah ke Jenis: filter
  * yang tersimpan dari versi sebelumnya bisa saja masih memuatnya.
  */
-const statusMatch = (c: YardContainer, s: ContainerStatus): boolean => {
+export const statusMatch = (c: YardContainer, s: ContainerStatus): boolean => {
   switch (s) {
     case 'full':
       return c.filled;
@@ -71,7 +71,7 @@ const statusMatch = (c: YardContainer, s: ContainerStatus): boolean => {
 };
 
 /** Reefer disaring dari sifatnya sendiri; sisanya dari bentuk yang digambar. */
-const typeMatch = (c: YardContainer, t: TypeFilter): boolean =>
+export const typeMatch = (c: YardContainer, t: TypeFilter): boolean =>
   t === 'reefer' ? c.reefer : c.type === t;
 
 export function matchesFilter(c: YardContainer, f: YardFilter): boolean {

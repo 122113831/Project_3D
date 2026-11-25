@@ -258,7 +258,13 @@ export function EditorTools() {
         store.setTool('select');
       } else if (e.key.toLowerCase() === 'z' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
-        store.undo();
+        // Ctrl+Shift+Z = ulangi, seperti aplikasi gambar pada umumnya.
+        if (e.shiftKey) store.redo();
+        else store.undo();
+        invalidate();
+      } else if (e.key.toLowerCase() === 'y' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        store.redo();
         invalidate();
       } else if (e.key.toLowerCase() === 'r' && store.selected?.type !== undefined) {
         const sel = store.selected;

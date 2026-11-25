@@ -39,6 +39,8 @@ export type Trip = {
   leaving: boolean;
   /** Tujuan dari pesan, kalau pesannya membawanya. */
   position: YardPosition | null;
+  /** Kode alat penanganan dari PRODUCTION_OPERATOR_NEW (RS01, SL02, …); null = RTG. */
+  equipment: string | null;
   /** Saat kejadian terakhir diterima — untuk kartu perjalanan. */
   updatedAt: number;
 };
@@ -58,6 +60,11 @@ export type RtgJob = {
   stage: 'queued' | 'working' | 'done';
   /** Alat yang melayani; null = tidak ada RTG di blok itu, dipindahkan tanpa animasi. */
   rtgId: string | null;
+  /**
+   * Kode alat penanganan dari data (RS01, SL02, …). Bila ada dan tata letak
+   * punya alat bergerak, RsWorks yang mengerjakan — bukan RTG.
+   */
+  equipment?: string | null;
   lifted: boolean;
   placed: boolean;
   queuedAt: number;
@@ -186,10 +193,10 @@ export const useTraffic = create<TrafficState>((set, get) => ({
       const c = b.containers.find((x) => x.no.trim().toUpperCase() === key);
       if (c) found = { block: b, c };
     }
-    if (!found) return `${key} tidak ada di lapangan`;
+    if (!found) return `${key} is not in the yard`;
     if (found.block.id !== to.block.toUpperCase()) {
       // Antar blok berarti truk (atau ITV) di antaranya — itu perjalanan, bukan relokasi.
-      return `relokasi ${key} ke blok lain butuh truk — kirim sebagai gate/handled`;
+      return `relocating ${key} to another block needs a truck — send it as gate/handled`;
     }
     const dest: YardContainer = {
       ...found.c,
@@ -211,7 +218,7 @@ export const useTraffic = create<TrafficState>((set, get) => ({
       placed: false,
       queuedAt: Date.now(),
     });
-    set({ note: `Relokasi ${key}: ${found.block.id}-${found.c.bay * 2 + 1}/${found.c.row + 1}/${found.c.tier} → ${to.slot}/${to.row}/${to.tier}` });
+    set({ note: `Relocation ${key}: ${found.block.id}-${found.c.bay * 2 + 1}/${found.c.row + 1}/${found.c.tier} → ${to.slot}/${to.row}/${to.tier}` });
     return null;
   },
 
@@ -256,7 +263,7 @@ export const useTraffic = create<TrafficState>((set, get) => ({
     // Relokasi tidak punya truk: langsung jadi pekerjaan RTG.
     if (e.kind === 'SHIFT') {
       if (!e.position) {
-        set({ note: `Relokasi ${e.ctrNo} tanpa posisi tujuan — diabaikan` });
+        set({ note: `Relocation ${e.ctrNo} has no target position — ignored` });
         return;
       }
       const why = get().shift(e.ctrNo, e.position);
@@ -286,10 +293,12 @@ export const useTraffic = create<TrafficState>((set, get) => ({
         handled: false,
         leaving: false,
         position: null,
+        equipment: null,
         updatedAt: Date.now(),
       };
       const next: Trip = { ...trip, updatedAt: Date.now() };
       if (e.position) next.position = e.position;
+      if (e.equipment) next.equipment = e.equipment.trim().toUpperCase();
       if (!next.truckNo && e.truckNo) next.truckNo = e.truckNo.trim();
       if (e.kind === 'GATE_IN') next.gateInNo = e.gateNo ?? next.gateInNo;
       if (e.kind === 'HANDLED') next.handled = true;
@@ -307,6 +316,7 @@ export const useTraffic = create<TrafficState>((set, get) => ({
         cur.gateInNo === next.gateInNo &&
         cur.gateOutNo === next.gateOutNo &&
         cur.position === next.position &&
+        cur.equipment === next.equipment &&
         cur.truckNo === next.truckNo
       ) {
         return {};
@@ -344,7 +354,7 @@ export const useTraffic = create<TrafficState>((set, get) => ({
   dayClock: null,
   replayDay: async (day, scale) => {
     get().stop();
-    set({ replaying: true, note: `Membaca GATE_HIST ${day}…`, skipped: {} });
+    set({ replaying: true, note: `Reading GATE_HIST ${day}…`, skipped: {} });
     let rows: GateTrip[];
     try {
       rows = await fetchGateDay(day);
@@ -354,13 +364,13 @@ export const useTraffic = create<TrafficState>((set, get) => ({
     }
     const plan = scheduleDay(rows, scale);
     if (plan.length === 0) {
-      set({ replaying: false, note: `Tidak ada perjalanan pada ${day}.` });
+      set({ replaying: false, note: `No trips on ${day}.` });
       return;
     }
     const total = plan.length;
     set({
       dayClock: { day, real: plan[0].real, startedAt: performance.now(), scale, done: 0, total },
-      note: `Memutar ulang ${day}: ${rows.length} perjalanan, ${scale}× lebih cepat.`,
+      note: `Replaying ${day}: ${rows.length} trips, ${scale}× faster.`,
     });
     plan.forEach((p, i) =>
       timers.push(
@@ -377,7 +387,7 @@ export const useTraffic = create<TrafficState>((set, get) => ({
 
   replay: async (limit) => {
     get().stop();
-    set({ replaying: true, note: 'Membaca GATE_HIST…', skipped: {} });
+    set({ replaying: true, note: 'Reading GATE_HIST…', skipped: {} });
     let rows: GateTrip[];
     try {
       rows = await fetchGateTrips(limit);
@@ -388,7 +398,7 @@ export const useTraffic = create<TrafficState>((set, get) => ({
     // Terlama lebih dulu, supaya urutan kedatangannya sama dengan aslinya.
     rows = rows.filter((r) => r.gateIn).reverse();
     if (rows.length === 0) {
-      set({ replaying: false, note: 'GATE_HIST tidak berisi perjalanan.' });
+      set({ replaying: false, note: 'GATE_HIST contains no trips.' });
       return;
     }
 
@@ -406,6 +416,7 @@ export const useTraffic = create<TrafficState>((set, get) => ({
         ctrNo: r.ctrNo,
         truckNo: r.truckNo,
         flow: r.flow,
+        equipment: r.equipment,
       };
       const tIn = t;
       const tHandled = tIn + gap(r.gateIn, r.handled, 8);
@@ -417,7 +428,7 @@ export const useTraffic = create<TrafficState>((set, get) => ({
       t += 6000 / speed;
     }
     after(t, () => set({ replaying: false }));
-    set({ note: `Memutar ulang ${rows.length} perjalanan dari GATE_HIST.` });
+    set({ note: `Replaying ${rows.length} trips from GATE_HIST.` });
   },
 
   stop: () => {

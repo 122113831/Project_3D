@@ -63,13 +63,13 @@ export async function GET() {
 export async function POST(request: Request) {
   const secret = process.env.EVENTS_SECRET;
   if (secret && request.headers.get('x-events-secret') !== secret) {
-    return NextResponse.json({ error: 'x-events-secret tidak cocok' }, { status: 401 });
+    return NextResponse.json({ error: 'x-events-secret does not match' }, { status: 401 });
   }
   let raw: unknown;
   try {
     raw = await request.json();
   } catch {
-    return NextResponse.json({ error: 'body bukan JSON' }, { status: 400 });
+    return NextResponse.json({ error: 'body is not JSON' }, { status: 400 });
   }
   const items = Array.isArray(raw) ? raw : [raw];
   const accepted = [];
@@ -82,7 +82,7 @@ export async function POST(request: Request) {
   }
   if (accepted.length === 0) {
     return NextResponse.json(
-      { error: 'tidak ada kejadian yang sah — minimal perlu ctrNo / CTR_NO' },
+      { error: 'no valid events — at least ctrNo / CTR_NO is required' },
       { status: 400 },
     );
   }

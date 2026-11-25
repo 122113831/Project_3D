@@ -69,8 +69,8 @@ function pool(): Promise<oracledb.Pool> {
     if (!user || !password || !connectString) {
       return Promise.reject(
         new Error(
-          'Kredensial database belum lengkap. Isi DEPOT_DB_USER, DEPOT_DB_PASS, ' +
-            'dan DEPOT_DB_CONNECT_STRING di .env.local',
+          'Database credentials incomplete. Set DEPOT_DB_USER, DEPOT_DB_PASS, ' +
+            'and DEPOT_DB_CONNECT_STRING in .env.local',
         ),
       );
     }
@@ -183,7 +183,7 @@ const isoDate = (d: Date) =>
  */
 function toContainer(r: DepotRow, blockId: string): YardContainer {
   return {
-    no: r.CTR_NO?.trim() || '(tanpa nomor)',
+    no: r.CTR_NO?.trim() || '(no number)',
     size: sizeOf(r.CTR_SIZE),
     type: typeOf(r.CTR_TYPE),
     status: statusOf(r),
@@ -695,6 +695,12 @@ export type GateTrip = {
   /** Saat kontainer ditangani di lapangan — ditumpuk (R) atau diangkat ke truk (D). */
   handled: string | null;
   gateOut: string | null;
+  /**
+   * Alat yang menumpuk (R) / mengangkat (D) kontainer ini menurut
+   * PRODUCTION_OPERATOR_NEW.KODE_ALAT — mis. RS01, SL02, FL01. Null = tidak
+   * tercatat (RTG yang melayani, seperti sebelumnya).
+   */
+  equipment: string | null;
 };
 
 type GateRow = {
@@ -708,7 +714,25 @@ type GateRow = {
   STACK_ON_YARD: Date | null;
   STACK_ON_TRK: Date | null;
   GATO_DT: Date | null;
+  KODE_ALAT: string | null;
 };
+
+/**
+ * Kode alat yang menangani perjalanan gate (alias tabel gate_hist = g): baris
+ * PRODUCTION_OPERATOR_NEW untuk kontainer yang sama, kegiatan STACK (R) atau
+ * USTACK (D), di antara gate in (−1 jam) dan gate out (atau +3 hari bila truk
+ * belum keluar). Bila lebih dari satu, yang terakhir dicatat.
+ */
+const EQUIPMENT_SQL = `(SELECT TRIM(MAX(p.kode_alat) KEEP (DENSE_RANK LAST ORDER BY p.update_time))
+                 FROM production_operator_new p
+                WHERE p.container_key = g.ctr_key
+                  AND TRIM(p.activity) = CASE WHEN UPPER(TRIM(g.receiv_deliv)) = 'D' THEN 'USTACK' ELSE 'STACK' END
+                  AND p.update_time >= g.gati_dt - 1/24
+                  AND p.update_time <= NVL(g.gato_dt, g.gati_dt + 3)) AS kode_alat`;
+
+const GATE_COLUMNS = `TRIM(g.job_no) AS job_no, TRIM(g.ctr_no) AS ctr_no, TRIM(g.truck_no) AS truck_no,
+              TRIM(g.receiv_deliv) AS receiv_deliv, g.gati_no, g.gato_no,
+              g.gati_dt, g.stack_on_yard, g.stack_on_trk, g.gato_dt, ${EQUIPMENT_SQL}`;
 
 const toTrip = (r: GateRow): GateTrip => {
   const iso = (d: Date | null) => (d ? d.toISOString() : null);
@@ -722,6 +746,7 @@ const toTrip = (r: GateRow): GateTrip => {
     gateIn: iso(r.GATI_DT),
     handled: iso(r.STACK_ON_YARD ?? r.STACK_ON_TRK),
     gateOut: iso(r.GATO_DT),
+    equipment: r.KODE_ALAT?.trim() || null,
   };
 };
 
@@ -733,18 +758,16 @@ const toTrip = (r: GateRow): GateTrip => {
  * lebih dulu: hanya YYYY-MM-DD yang lolos.
  */
 export async function readGateDay(day: string, limit = 500): Promise<GateTrip[]> {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error('Tanggal harus berbentuk YYYY-MM-DD.');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error('Date must be in YYYY-MM-DD format.');
   const n = Math.max(1, Math.min(2000, Math.floor(limit)));
   const rows = await query<GateRow>(
     'gate_hist hari',
     `SELECT * FROM (
-       SELECT TRIM(job_no) AS job_no, TRIM(ctr_no) AS ctr_no, TRIM(truck_no) AS truck_no,
-              TRIM(receiv_deliv) AS receiv_deliv, gati_no, gato_no,
-              gati_dt, stack_on_yard, stack_on_trk, gato_dt
-         FROM gate_hist
-        WHERE gati_dt >= TO_DATE('${day}', 'YYYY-MM-DD')
-          AND gati_dt <  TO_DATE('${day}', 'YYYY-MM-DD') + 1
-        ORDER BY gati_dt ASC)
+       SELECT ${GATE_COLUMNS}
+         FROM gate_hist g
+        WHERE g.gati_dt >= TO_DATE('${day}', 'YYYY-MM-DD')
+          AND g.gati_dt <  TO_DATE('${day}', 'YYYY-MM-DD') + 1
+        ORDER BY g.gati_dt ASC)
       WHERE ROWNUM <= ${n}`,
   );
   return rows.map(toTrip);
@@ -770,16 +793,14 @@ export async function readGateTrips(limit: number, openOnly = false): Promise<Ga
   const n = Math.max(1, Math.min(200, Math.floor(limit) || 20));
   // openOnly: perjalanan yang sudah gate in tapi belum gate out — truk yang
   // SEHARUSNYA sedang ada di lapangan saat peramban baru tersambung.
-  const open = openOnly ? 'AND gato_dt IS NULL' : '';
+  const open = openOnly ? 'AND g.gato_dt IS NULL' : '';
   const rows = await query<GateRow>(
     'gate_hist',
     `SELECT * FROM (
-       SELECT TRIM(job_no) AS job_no, TRIM(ctr_no) AS ctr_no, TRIM(truck_no) AS truck_no,
-              TRIM(receiv_deliv) AS receiv_deliv, gati_no, gato_no,
-              gati_dt, stack_on_yard, stack_on_trk, gato_dt
-         FROM gate_hist
-        WHERE gati_dt IS NOT NULL ${open}
-        ORDER BY gati_dt DESC)
+       SELECT ${GATE_COLUMNS}
+         FROM gate_hist g
+        WHERE g.gati_dt IS NOT NULL ${open}
+        ORDER BY g.gati_dt DESC)
       WHERE ROWNUM <= ${n}`,
   );
   return rows.map(toTrip);

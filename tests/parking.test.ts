@@ -16,7 +16,7 @@ describe('parkir alat', () => {
     expect(parkingSpec({ bays: 99 }).bays).toBe(30);
     expect(parkingSpec({ bays: 0 }).bays).toBe(4); // kosong/0 → bawaan
     const legacy = parkingSpec({ bays: 3, parked: 2, prefix: 'RS' } as never);
-    expect(legacy).toEqual({ bays: 3, rows: 1, vehicle: 'reachStacker', label: 'PARKIR RS' });
+    expect(legacy).toEqual({ bays: 3, rows: 1, vehicle: 'reachStacker', label: 'RS PARKING' });
   });
 
   it('tapak membesar mengikuti jumlah lajur dan jenis alat', () => {

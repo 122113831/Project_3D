@@ -184,10 +184,10 @@ export const ROAD_KINDS = ['straight', 'corner', 'tee', 'cross'] as const;
 export type RoadKind = (typeof ROAD_KINDS)[number];
 
 export const ROAD_LABEL: Record<RoadKind, string> = {
-  straight: 'Jalan lurus',
-  corner: 'Belokan',
-  tee: 'Pertigaan',
-  cross: 'Perempatan',
+  straight: 'Straight road',
+  corner: 'Corner',
+  tee: 'T-junction',
+  cross: 'Crossroads',
 };
 
 /**

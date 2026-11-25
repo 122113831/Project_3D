@@ -30,7 +30,7 @@ const author = () => (process.env.DEPOT_DB_WRITE_USER || 'yard3d').slice(0, 100)
 export function writeTarget() {
   return {
     enabled: enabled(),
-    target: process.env.DEPOT_DB_CONNECT_STRING || '(belum diatur)',
+    target: process.env.DEPOT_DB_CONNECT_STRING || '(not set)',
   };
 }
 
@@ -39,8 +39,8 @@ export class WriteRefused extends Error {}
 function assertEnabled() {
   if (!enabled()) {
     throw new WriteRefused(
-      'Penulisan ke database dimatikan. Set DEPOT_DB_WRITE=true di .env untuk mengaktifkannya ' +
-        `pada koneksi yang sedang dipakai (${process.env.DEPOT_DB_CONNECT_STRING ?? '?'}).`,
+      'Database writes are disabled. Set DEPOT_DB_WRITE=true in .env to enable them ' +
+        `on the connection in use (${process.env.DEPOT_DB_CONNECT_STRING ?? '?'}).`,
     );
   }
 }
@@ -78,30 +78,30 @@ export function validateBlock(input: NewBlock) {
     .trim()
     .toUpperCase();
   if (!/^[A-Z0-9]{1,5}$/.test(code)) {
-    throw new WriteRefused('Kode blok harus 1–5 huruf atau angka, tanpa spasi.');
+    throw new WriteRefused('Block code must be 1–5 letters or digits, no spaces.');
   }
   const slots = int(input.slots);
   const rows = int(input.rows);
   const tiers = int(input.tiers);
   if (!(slots >= 1 && slots <= MAX_SLOTS)) {
-    throw new WriteRefused(`Jumlah slot harus 1–${MAX_SLOTS}.`);
+    throw new WriteRefused(`Slot count must be 1–${MAX_SLOTS}.`);
   }
   if (!(rows >= 1 && rows <= MAX_ROWS)) {
-    throw new WriteRefused(`Jumlah row harus 1–${MAX_ROWS}.`);
+    throw new WriteRefused(`Row count must be 1–${MAX_ROWS}.`);
   }
   if (!(tiers >= 1 && tiers <= MAX_TIERS)) {
-    throw new WriteRefused(`Jumlah tier harus 1–${MAX_TIERS}.`);
+    throw new WriteRefused(`Tier count must be 1–${MAX_TIERS}.`);
   }
   if (slots * rows * tiers > MAX_CELLS) {
     throw new WriteRefused(
-      `Blok ${slots}x${rows}x${tiers} = ${slots * rows * tiers} slot, di atas batas ${MAX_CELLS}. ` +
-        'Tiap slot menjadi satu baris YARD_ROWTIER.',
+      `Block ${slots}x${rows}x${tiers} = ${slots * rows * tiers} slots, over the limit of ${MAX_CELLS}. ` +
+        'Each slot becomes one YARD_ROWTIER row.',
     );
   }
   const mapX = Number(input.mapX);
   const mapY = Number(input.mapY);
   if (!Number.isFinite(mapX) || !Number.isFinite(mapY)) {
-    throw new WriteRefused('Posisi blok tidak sah.');
+    throw new WriteRefused('Invalid block position.');
   }
   const rotDeg = Number.isFinite(Number(input.rotDeg)) ? Number(input.rotDeg) : 0;
   const name = (String(input.name ?? '').trim() || code).slice(0, 20);
@@ -211,7 +211,7 @@ async function insertCells(
 ) {
   if (cells.length === 0) return 0;
   if (cells.length > MAX_CELLS) {
-    throw new WriteRefused(`${cells.length} baris terlalu banyak untuk sekali tulis (batas ${MAX_CELLS}).`);
+    throw new WriteRefused(`${cells.length} rows is too many for one write (limit ${MAX_CELLS}).`);
   }
   const rows: oracledb.BindParameters[] = cells.map((x) => ({
     site: tpl?.SITE_ID ?? site,
@@ -224,7 +224,7 @@ async function insertCells(
   }));
   const res = await c.executeMany(SLOT_INSERT, rows, { bindDefs: SLOT_BIND_DEFS });
   if ((res.rowsAffected ?? 0) !== rows.length) {
-    throw new Error(`Hanya ${res.rowsAffected} dari ${rows.length} baris slot tersisip.`);
+    throw new Error(`Only ${res.rowsAffected} of ${rows.length} slot rows were inserted.`);
   }
   return rows.length;
 }
@@ -257,7 +257,7 @@ export async function createBlock(input: NewBlock): Promise<CreateResult> {
       { outFormat: oracledb.OUT_FORMAT_OBJECT },
     );
     if ((dup.rows?.[0]?.N ?? 0) > 0) {
-      throw new WriteRefused(`Blok "${b.code}" sudah ada di CORE_YARD_BLOCK.`);
+      throw new WriteRefused(`Block "${b.code}" already exists in CORE_YARD_BLOCK.`);
     }
 
     const { site } = await siteOf(c);
@@ -318,9 +318,9 @@ export async function updatePlacement(p: Placement): Promise<void> {
   const code = String(p.code ?? '')
     .trim()
     .toUpperCase();
-  if (!/^[A-Z0-9]{1,5}$/.test(code)) throw new WriteRefused('Kode blok tidak sah.');
+  if (!/^[A-Z0-9]{1,5}$/.test(code)) throw new WriteRefused('Invalid block code.');
   if (!Number.isFinite(p.mapX) || !Number.isFinite(p.mapY)) {
-    throw new WriteRefused('Posisi blok tidak sah.');
+    throw new WriteRefused('Invalid block position.');
   }
   // Sudut dinormalkan ke 0–360 supaya nilainya tidak merayap naik tiap kali
   // pengguna memutar blok ke arah yang sama berulang-ulang.
@@ -345,7 +345,7 @@ export async function updatePlacement(p: Placement): Promise<void> {
       },
     );
     if ((r.rowsAffected ?? 0) === 0) {
-      throw new WriteRefused(`Blok "${code}" tidak ada di CORE_YARD_BLOCK.`);
+      throw new WriteRefused(`Block "${code}" does not exist in CORE_YARD_BLOCK.`);
     }
     await c.commit();
     if (depotLogging()) {
@@ -433,9 +433,9 @@ export async function readLayout(code: LayoutCode): Promise<StoredLayout> {
 export class LayoutConflict extends Error {
   constructor(public current: StoredLayout) {
     super(
-      `Tata letak sudah diubah dari tempat lain (revisi ${current.revision}` +
-        `${current.updatedBy ? ` oleh ${current.updatedBy}` : ''}). ` +
-        'Muat ulang halaman sebelum menyunting lagi supaya perubahan itu tidak tertimpa.',
+      `The layout was changed elsewhere (revision ${current.revision}` +
+        `${current.updatedBy ? ` by ${current.updatedBy}` : ''}). ` +
+        'Reload the page before editing again so those changes are not overwritten.',
     );
   }
 }
@@ -458,11 +458,11 @@ export async function writeLayout(
 ): Promise<StoredLayout> {
   assertEnabled();
   if (typeof json !== 'string' || !json.trim()) {
-    throw new WriteRefused('Tata letak kosong.');
+    throw new WriteRefused('Layout is empty.');
   }
   if (Buffer.byteLength(json, 'utf8') > MAX_LAYOUT_BYTES) {
     throw new WriteRefused(
-      `Tata letak ${Math.round(Buffer.byteLength(json, 'utf8') / 1024)} KB, di atas batas ` +
+      `Layout is ${Math.round(Buffer.byteLength(json, 'utf8') / 1024)} KB, over the limit of ` +
         `${MAX_LAYOUT_BYTES / 1024} KB.`,
     );
   }
@@ -472,13 +472,13 @@ export async function writeLayout(
   } catch {
     // Kolomnya ber-constraint IS JSON, jadi ini toh akan ditolak database —
     // tapi ORA-02290 tidak memberi tahu siapa pun apa yang salah.
-    throw new WriteRefused('Tata letak bukan JSON yang sah.');
+    throw new WriteRefused('Layout is not valid JSON.');
   }
   // "null" lolos JSON.parse dan lolos constraint IS JSON. Tanpa pemeriksaan
   // ini, kiriman tanpa field layout akan menimpa tata letak bersama dengan
   // baris kosong yang sah menurut database.
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new WriteRefused('Tata letak harus berupa objek.');
+    throw new WriteRefused('Layout must be an object.');
   }
 
   const current = await readLayout(code);
@@ -553,7 +553,7 @@ export type SlotRef = { block: string; slot: number; row: number; tier?: number 
 
 const blockCode = (v: unknown) => {
   const s = String(v ?? '').trim().toUpperCase();
-  if (!/^[A-Z0-9]{1,5}$/.test(s)) throw new WriteRefused(`Kode blok "${s}" tidak sah.`);
+  if (!/^[A-Z0-9]{1,5}$/.test(s)) throw new WriteRefused(`Invalid block code "${s}".`);
   return s;
 };
 
@@ -567,7 +567,7 @@ async function blockDims(c: oracledb.Connection, code: string) {
     { outFormat: oracledb.OUT_FORMAT_OBJECT },
   );
   const row = r.rows?.[0];
-  if (!row) throw new WriteRefused(`Blok ${code} tidak ada di CORE_YARD_BLOCK.`);
+  if (!row) throw new WriteRefused(`Block ${code} does not exist in CORE_YARD_BLOCK.`);
   return { slots: Number(row.SLOTS), rows: Number(row.ROWS_), tiers: Number(row.TIERS) };
 }
 
@@ -576,10 +576,10 @@ function checkRef(p: SlotRef, d: { slots: number; rows: number; tiers: number })
   const row = Number(p.row);
   // YARD_SLOT ganjil 1, 3, … 2n-1 — lihat createBlock.
   if (!Number.isInteger(slot) || slot < 1 || slot > d.slots * 2 - 1 || slot % 2 === 0) {
-    throw new WriteRefused(`Slot ${p.slot} di luar blok (1..${d.slots * 2 - 1}, ganjil).`);
+    throw new WriteRefused(`Slot ${p.slot} is outside the block (1..${d.slots * 2 - 1}, odd).`);
   }
   if (!Number.isInteger(row) || row < 1 || row > d.rows) {
-    throw new WriteRefused(`Row ${p.row} di luar blok (1..${d.rows}).`);
+    throw new WriteRefused(`Row ${p.row} is outside the block (1..${d.rows}).`);
   }
   return { slot, row };
 }
@@ -601,7 +601,7 @@ export async function lockSlot(p: SlotRef): Promise<{ deleted: number }> {
     const { slot, row } = checkRef(p, d);
     const tier = Number(p.tier);
     if (!Number.isInteger(tier) || tier < 1 || tier > d.tiers) {
-      throw new WriteRefused(`Tier ${p.tier} di luar blok (1..${d.tiers}).`);
+      throw new WriteRefused(`Tier ${p.tier} is outside the block (1..${d.tiers}).`);
     }
 
     const busy = await c.execute<{ TIER: number; NO: string | null; SLOT: number }>(
@@ -628,8 +628,8 @@ export async function lockSlot(p: SlotRef): Promise<{ deleted: number }> {
     const hit = busy.rows?.[0];
     if (hit) {
       throw new WriteRefused(
-        `Tidak bisa dikunci: tier ${hit.TIER} ${hit.SLOT !== slot ? `(40ft dari slot ${hit.SLOT}) ` : ''}` +
-          `masih berisi ${hit.NO ?? 'kontainer'}. Kunci hanya boleh mulai di atas kontainer teratas.`,
+        `Cannot lock: tier ${hit.TIER} ${hit.SLOT !== slot ? `(40ft from slot ${hit.SLOT}) ` : ''}` +
+          `still holds ${hit.NO ?? 'a container'}. A lock may only start above the topmost container.`,
       );
     }
 
@@ -728,10 +728,10 @@ export async function resizeBlock(input: Resize): Promise<ResizeResult> {
     ['row', to.rows, MAX_ROWS],
     ['tier', to.tiers, MAX_TIERS],
   ] as const) {
-    if (!Number.isInteger(v) || v < 1 || v > max) throw new WriteRefused(`Jumlah ${k} harus 1..${max}.`);
+    if (!Number.isInteger(v) || v < 1 || v > max) throw new WriteRefused(`${k} count must be 1..${max}.`);
   }
   if (to.slots * to.rows * to.tiers > MAX_CELLS * 4) {
-    throw new WriteRefused(`Kapasitas ${to.slots * to.rows * to.tiers} slot terlalu besar.`);
+    throw new WriteRefused(`Capacity of ${to.slots * to.rows * to.tiers} slots is too large.`);
   }
 
   const c = await borrowConnection();
@@ -752,8 +752,8 @@ export async function resizeBlock(input: Resize): Promise<ResizeResult> {
     const outside = busy.rows?.[0];
     if (outside && Number(outside.N) > 0) {
       throw new WriteRefused(
-        `Tidak bisa dikecilkan: ${outside.N} kontainer berada di luar ukuran baru` +
-          `${outside.NO ? ` (antara lain ${outside.NO})` : ''}. Pindahkan dulu lewat TOS.`,
+        `Cannot shrink: ${outside.N} containers lie outside the new size` +
+          `${outside.NO ? ` (including ${outside.NO})` : ''}. Move them via the TOS first.`,
       );
     }
 

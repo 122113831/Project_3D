@@ -16,7 +16,7 @@
 import { BOX, PITCH, ROAD } from './constants';
 import { isBlocked } from './slots';
 import type { YardBlock, YardContainer } from './types';
-import { containerPosition } from './yard';
+import { aroundBlock, containerPosition } from './yard';
 import type { LayoutEquipment, LayoutRoad } from './layout';
 
 /** Geometri boom — HARUS sama dengan RS di reachStacker.ts (diuji). */
@@ -443,4 +443,155 @@ export function planRsFor(
   const best = roomy(sides[0]) >= roomy(sides[1]) ? sides[0] : sides[1];
   const move = pickRsMove(block, best, rand);
   return move ? planRsJob(unit, block, best, move, blocks, roads) : null;
+}
+
+// ---------------------------------------------------------------------------
+// Stack / unstack truk gate oleh alat bergerak (RS, SL, FL) menurut data
+// PRODUCTION_OPERATOR_NEW.KODE_ALAT.
+// ---------------------------------------------------------------------------
+
+/**
+ * Awalan kode alat bergerak yang menumpuk/mengangkat dari samping blok:
+ * reach stacker, side loader, forklift, empty handler, top loader. Kode lain
+ * (RTG…, HT…, kosong) tetap dilayani RTG blok seperti sebelumnya.
+ */
+const MOBILE_PREFIX = /^(RS|SL|FL|EH|ES|TL)/;
+
+/** "RS 1", "rs01", "RS001" → { prefix: 'RS', no: 1 }; null bila bukan bentuk huruf+angka. */
+export function parseEquipCode(code: string | null | undefined): { prefix: string; no: number } | null {
+  const m = (code ?? '').replace(/\s+/g, '').toUpperCase().match(/^([A-Z]+)0*(\d+)$/);
+  return m ? { prefix: m[1], no: Number(m[2]) } : null;
+}
+
+/** Kode alat ini milik alat bergerak (bukan RTG)? */
+export const wantsMobile = (code: string | null | undefined) =>
+  MOBILE_PREFIX.test((code ?? '').replace(/\s+/g, '').toUpperCase());
+
+/**
+ * Alat bergerak yang mengerjakan kode `code`:
+ *   1. alat dengan kode yang sama (RS1 = RS01) — bila sibuk, DITUNGGU;
+ *   2. tidak ada: alat sejenis (awalan sama) yang bebas;
+ *   3. tidak ada juga: alat bergerak mana pun yang bebas — mis. data menyebut
+ *      RS02 atau SL01 tapi tata letak hanya punya RS01, maka RS01 yang jalan.
+ * 'wait' = alatnya ada tapi sedang sibuk semua; null = tidak ada alat sama sekali.
+ */
+export function pickMobileUnit(
+  code: string | null | undefined,
+  units: readonly RsUnit[],
+  busy: readonly string[],
+): RsUnit | 'wait' | null {
+  if (!units.length) return null;
+  const want = parseEquipCode(code);
+  const free = (u: RsUnit) => !busy.includes(u.key);
+  const same = (u: RsUnit, sameNo: boolean) => {
+    const p = parseEquipCode(u.code);
+    return !!p && !!want && p.prefix === want.prefix && (!sameNo || p.no === want.no);
+  };
+  const exact = units.find((u) => same(u, true));
+  if (exact) return free(exact) ? exact : 'wait';
+  const kind = units.filter((u) => same(u, false));
+  const pool = kind.length ? kind : units;
+  return pool.find(free) ?? 'wait';
+}
+
+/** Tinggi dek chassis truk — SAMA dengan TRUCK_DECK_TOP di RtgWorks. */
+export const RS_TRUCK_DECK = 1.45;
+
+/**
+ * Rencana RS untuk satu truk gate: R = ambil dari dek truk → taruh di tumpukan;
+ * D = ambil dari tumpukan → taruh di dek truk.
+ *
+ * Truk berhenti di lajur layanan (satu sisi blok), jadi RS mendekati truk
+ * dari LUAR lajur itu, dan mendekati tumpukan dari SISI SEBERANG blok — RS
+ * tidak bisa berdiri di antara truk dan blok. Di antara keduanya RS memutari
+ * ujung blok yang lebih dekat ke bay. Kontainer di row dalam dijangkau dengan
+ * boom terpanjang dari row terdepan sisi seberang.
+ */
+export function planRsTruckJob(
+  unit: RsUnit,
+  block: YardBlock,
+  flow: 'R' | 'D',
+  c: YardContainer,
+  truck: Pt,
+  blocks: readonly YardBlock[],
+  roads: readonly LayoutRoad[] = [],
+): RsJobPlan {
+  const obs = obstacles(blocks, roads);
+  const len = block.slots * PITCH.teu;
+  const width = block.rows * PITCH.row;
+  const [ox, oz] = aroundBlock(block, 0, 0);
+  const o = { x: ox, z: oz };
+  const [ux, uz] = aroundBlock(block, 1, 0);
+  const tU = { x: ux - ox, z: uz - oz };
+  // Arah dunia dari tengah blok ke lajur truk (sisi tempat truk berhenti).
+  const [lx, lz] = aroundBlock(block, 0, 1);
+  let nL = { x: lx - ox, z: lz - oz };
+  if (dot(sub(truck, o), nL) < 0) nL = { x: -nL.x, z: -nL.z };
+  const P = (u: number, v: number): Pt => add(add(o, tU, u), nL, v);
+  const [cx, , cz] = containerPosition(block, c);
+  const uC = dot(sub({ x: cx, z: cz }, o), tU);
+  const vC = dot(sub({ x: cx, z: cz }, o), nL);
+  const uT = dot(sub(truck, o), tU);
+  const vT = dot(sub(truck, o), nL);
+  // Row terdepan di sisi seberang lajur, dan kedalaman kontainer dari sana.
+  const vFront = -(width / 2 - PITCH.row / 2);
+  const depth = Math.max(0, vC - vFront);
+  // Ujung blok yang dilewati: yang lebih dekat ke bay.
+  const e = uC >= 0 ? 1 : -1;
+  const uEnd = e * (len / 2 + 9);
+
+  type Spot = { u: number; v0: number; o: 1 | -1; dx: number; bottom: number };
+  const lane: Spot = { u: uT, v0: vT + RS_WORK_DIST, o: 1, dx: RS_WORK_DIST, bottom: RS_TRUCK_DECK + BOX.height };
+  const far: Spot = { u: uC, v0: vFront - RS_WORK_DIST, o: -1, dx: RS_WORK_DIST + depth, bottom: topOfTier(c.tier) };
+  const work = (s: Spot) => P(s.u, s.v0);
+  const pre = (s: Spot) => P(s.u, s.v0 + s.o * 5);
+  const stageV = (s: Spot) => s.v0 + s.o * 9;
+  const stage = (s: Spot) => P(s.u, stageV(s));
+  const src = flow === 'R' ? lane : far;
+  const dst = flow === 'R' ? far : lane;
+
+  const fwd = { x: Math.cos(unit.ry), z: -Math.sin(unit.ry) };
+  const lat = { x: -fwd.z, z: fwd.x };
+  const bay = { x: unit.x, z: unit.z };
+  const rest = RS_BOOM.rest;
+  const grab = rsReach(src.dx, src.bottom);
+  const lift = rsReach(src.dx, src.bottom + 0.8);
+  const carry = rsReach(5.5, BOX.height + 0.8);
+  const raise = rsReach(dst.dx, dst.bottom + 0.8);
+  const place = rsReach(dst.dx, dst.bottom);
+
+  const out = leaveBay(bay, fwd, lat, stage(src), rest);
+  const lane0 = add(out.end, out.travel, 4);
+  const turnOut = P(src.u - e * 6, stageV(src) - src.o);
+  // Pulang lewat sisi yang mengarah ke parkir.
+  const eR = dot(sub(bay, o), tU) >= 0 ? 1 : -1;
+  const back = P(dst.u - eR * 6, stageV(dst));
+  const from = P(dst.u + eR * 2, stageV(dst));
+
+  const steps: RsStep[] = [
+    out.step,
+    { kind: 'drive', reverse: false, pose: rest, pts: [out.end, lane0, ...lRoute(obs, lane0, stage(src)), stage(src), pre(src), work(src)] },
+    { kind: 'boom', from: rest, to: grab, dur: 2.6 },
+    { kind: 'boom', from: grab, to: grab, dur: 0.6, event: 'grab' },
+    { kind: 'boom', from: grab, to: lift, dur: 1.2 },
+    { kind: 'drive', reverse: true, pose: lift, pts: [work(src), pre(src)] },
+    { kind: 'boom', from: lift, to: carry, dur: 1.8 },
+    { kind: 'drive', reverse: true, pose: carry, pts: [pre(src), turnOut] },
+    // Menyusur sisi blok, memutari ujungnya, lalu menghadap tujuan.
+    {
+      kind: 'drive',
+      reverse: false,
+      pose: carry,
+      pts: [turnOut, P(src.u + e * 2, stageV(src)), P(uEnd, stageV(src)), P(uEnd, stageV(dst)), P(dst.u + e * 6, stageV(dst)), stage(dst), pre(dst)],
+    },
+    { kind: 'boom', from: carry, to: raise, dur: 2.2 },
+    { kind: 'drive', reverse: false, pose: raise, pts: [pre(dst), work(dst)] },
+    { kind: 'boom', from: raise, to: place, dur: 1.4 },
+    { kind: 'boom', from: place, to: place, dur: 0.6, event: 'release' },
+    { kind: 'boom', from: place, to: rest, dur: 2.2 },
+    { kind: 'drive', reverse: true, pose: rest, pts: [work(dst), pre(dst), back] },
+    { kind: 'drive', reverse: false, pose: rest, pts: [back, from] },
+    ...enterBay(bay, fwd, lat, from, rest, obs),
+  ];
+  return { blockId: block.id, container: c, to: c, steps };
 }

@@ -388,7 +388,7 @@ function Fleet({ graph, find, blocks }: {
         if (isBlocked(locks, dest.c.bay + i, dest.c.row, dest.c.tier)) {
           return (
             `slot ${dest.block.id}-${(dest.c.bay + i) * 2 + 1} row ${dest.c.row + 1} ` +
-            `tier ${dest.c.tier} terkunci — tidak bisa ditumpuk`
+            `tier ${dest.c.tier} locked — cannot stack`
           );
         }
       }
@@ -396,8 +396,8 @@ function Fleet({ graph, find, blocks }: {
     const stop = stopFor(g, dest.block, dest.c.bay, dest.c.size);
     if (!stop) {
       return dest.block.ownRoad === false
-        ? `blok ${dest.block.id}: tidak ada ubin jalan di lorong dekat slot ${dest.c.bay * 2 + 1}`
-        : `blok ${dest.block.id} tidak dikenal`;
+        ? `block ${dest.block.id}: no road tile in the aisle near slot ${dest.c.bay * 2 + 1}`
+        : `block ${dest.block.id} unknown`;
     }
     let path: Pt[] | null;
     const picked: { entry?: StopEntry } = {};
@@ -417,10 +417,10 @@ function Fleet({ graph, find, blocks }: {
     } else {
       const trip = useTraffic.getState().trips[m.id];
       const gate = pickGate(g, 'in', trip?.gateInNo ?? null);
-      if (!gate) return 'tata letak belum punya gate masuk';
+      if (!gate) return 'layout has no gate in yet';
       path = routeToStop(g, gate, stop, picked);
     }
-    if (!path) return `blok ${dest.block.id} tidak tersambung jalan ke gate`;
+    if (!path) return `block ${dest.block.id} is not connected by road to a gate`;
     // Ekor rute di lajur layanan (menepi + lurus) tidak digeser ke kiri.
     m.route = lane(path, !!from, picked.entry?.via ? 2 : 1);
     m.entry = picked.entry ?? null;
@@ -458,7 +458,7 @@ function Fleet({ graph, find, blocks }: {
     const spawn = async (trip: Trip): Promise<string | null> => {
       const g = graphRef.current;
       const gate = pickGate(g, 'in', trip.gateInNo);
-      if (!gate) return 'tata letak belum punya gate masuk';
+      if (!gate) return 'layout has no gate in yet';
       const m: Mover = {
         id: trip.id,
         route: makeRoute([gate.outside]),
@@ -495,7 +495,7 @@ function Fleet({ graph, find, blocks }: {
       const hold = holdPoint(g, gate);
       if (!hold) {
         movers.current.delete(trip.id);
-        return 'tidak ada jalan di dalam gerbang untuk menunggu';
+        return 'no road inside the gate to wait on';
       }
       m.route = lane(hold.pts, false, false);
       m.phase = 'in';
@@ -549,7 +549,7 @@ function Fleet({ graph, find, blocks }: {
         void resolve(trip).then((dest) => {
           m.resolving = false;
           if (!dest) {
-            skip(m.id, `${trip.ctrNo} belum punya slot di lapangan`);
+            skip(m.id, `${trip.ctrNo} has no slot in the yard yet`);
             return;
           }
           const err = routeInto(m, { x: m.x, z: m.z }, dest);
@@ -568,6 +568,7 @@ function Fleet({ graph, find, blocks }: {
           truck: { x: m.x, z: m.z, ry: m.ry },
           stage: 'queued',
           rtgId: null,
+          equipment: trip.equipment,
           lifted: false,
           placed: false,
           queuedAt: Date.now(),
@@ -580,7 +581,7 @@ function Fleet({ graph, find, blocks }: {
         const gate = pickGate(g, 'out', trip.gateOutNo);
         const path = gate ? routeFromStop(g, m.stop, gate, m.entry) : null;
         if (!path) {
-          skip(m.id, gate ? 'tidak ada jalan dari blok ke gate keluar' : 'tata letak belum punya gate keluar');
+          skip(m.id, gate ? 'no road from the block to a gate out' : 'layout has no gate out yet');
           continue;
         }
         m.route = lane(path, m.entry?.outVia ? 2 : 1, false);
